@@ -58,24 +58,22 @@ function App() {
   }
 
   const isOccupied = (x: number, y: number, width: number, height: number, excludeId?: string) => {
-    for (let i = x; i < x + width; i++) {
-      for (let j = y; j < y + height; j++) {
-        if (i < 0 || j < 0 || i >= gridSize || j >= gridSize) return true;
-        for (const b of placedBuildings) {
-          if (b.id === excludeId) continue;
-          if (i >= b.x && i < b.x + b.width && j >= b.y && j < b.y + b.height) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    if (x < 0 || y < 0 || x + width > gridSize || y + height > gridSize) return true;
+    return placedBuildings.some(b => {
+      if (b.id === excludeId) return false;
+      return (
+        x < b.x + b.width &&
+        x + width > b.x &&
+        y < b.y + b.height &&
+        y + height > b.y
+      );
+    });
   };
 
   const exportData = () => {
     const data = {
       gridSize,
-      buildings,
+      keeps: buildings.filter(b => !b.isBase),
       placedBuildings
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -95,7 +93,8 @@ function App() {
         try {
             const data = JSON.parse(event.target?.result as string);
             if (data.gridSize) setGridSize(data.gridSize);
-            if (data.buildings) setBuildings(data.buildings);
+            const customBuildings = data.keeps || data.buildings || [];
+            setBuildings([...INITIAL_BUILDINGS, ...customBuildings]);
             if (data.placedBuildings) setPlacedBuildings(data.placedBuildings);
         } catch (err) {
             alert('Invalid JSON file');
@@ -111,7 +110,6 @@ function App() {
     <div
       className="fixed inset-0 bg-slate-900 text-white flex flex-col overflow-hidden"
       onClick={() => setContextMenu(null)}
-      onDragEnd={() => setActiveDragItem(null)}
     >
       <header className="h-12 border-b border-slate-700 flex items-center px-4 bg-slate-800 shrink-0 z-10">
         <h1 className="font-bold text-lg tracking-tight italic">HIVE<span className="text-blue-500">MAP</span></h1>
@@ -174,23 +172,23 @@ function App() {
             onClick={(e) => e.stopPropagation()}
         >
             {!contextMenu.building.isBase && (
-                <>
-                    <button
-                        className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm"
-                        onClick={() => {
-                            setEditingBuilding(contextMenu.building);
-                            setContextMenu(null);
-                        }}
-                    >
-                        Modify
-                    </button>
-                    <button
-                        className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm"
-                        onClick={() => handleDuplicate(contextMenu.building)}
-                    >
-                        Duplicate
-                    </button>
-                </>
+              <>
+                <button
+                    className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm"
+                    onClick={() => {
+                        setEditingBuilding(contextMenu.building);
+                        setContextMenu(null);
+                    }}
+                >
+                    Modify
+                </button>
+                <button
+                    className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm"
+                    onClick={() => handleDuplicate(contextMenu.building)}
+                >
+                    Duplicate
+                </button>
+              </>
             )}
             <button
                 className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm text-red-400 border-t border-slate-700 mt-1"

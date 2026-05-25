@@ -199,11 +199,16 @@ const BuildingItem: React.FC<{
             e.preventDefault();
             return;
         }
+        e.dataTransfer.setData('text/plain', building.id);
+        e.dataTransfer.effectAllowed = 'move';
+
         setActiveDragItem(building);
+
         const img = new Image();
         img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         e.dataTransfer.setDragImage(img, 0, 0);
       }}
+      onDragEnd={() => setActiveDragItem(null)}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 overflow-hidden">

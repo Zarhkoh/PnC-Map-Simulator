@@ -91,33 +91,54 @@ export const Map: React.FC<MapProps> = ({
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!containerRef.current) return;
+    e.dataTransfer.dropEffect = 'move';
+    if (!containerRef.current || !activeDragItem) return;
 
     const rect = containerRef.current.getBoundingClientRect();
     const sx = (e.clientX - rect.left - offset.x) / zoom;
     const sy = (e.clientY - rect.top - offset.y) / zoom;
 
     const { i, j } = screenToGrid(sx, sy);
-    setDragPreviewPos({ x: i, y: j });
+    const centeredI = i - Math.floor(activeDragItem.width / 2);
+    const centeredJ = j - Math.floor(activeDragItem.height / 2);
+
+    // Only update if position actually changed to reduce re-renders
+    if (!dragPreviewPos || dragPreviewPos.x !== centeredI || dragPreviewPos.y !== centeredJ) {
+        setDragPreviewPos({ x: centeredI, y: centeredJ });
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only clear if we're actually leaving the container
+    if (e.relatedTarget === null || !containerRef.current?.contains(e.relatedTarget as Node)) {
+        setDragPreviewPos(null);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!activeDragItem || !dragPreviewPos) return;
+    if (!activeDragItem || !containerRef.current) return;
 
-    const { x: i, y: j } = dragPreviewPos;
+    const rect = containerRef.current.getBoundingClientRect();
+    const sx = (e.clientX - rect.left - offset.x) / zoom;
+    const sy = (e.clientY - rect.top - offset.y) / zoom;
+
+    const { i, j } = screenToGrid(sx, sy);
+    const finalI = i - Math.floor(activeDragItem.width / 2);
+    const finalJ = j - Math.floor(activeDragItem.height / 2);
+
     const isExisting = 'x' in activeDragItem;
 
     if (isExisting) {
         const b = activeDragItem as PlacedBuilding;
-        if (!isOccupied(i, j, b.width, b.height, b.id)) {
-            onMoveBuilding(b.id, i, j);
+        if (!isOccupied(finalI, finalJ, b.width, b.height, b.id)) {
+            onMoveBuilding(b.id, finalI, finalJ);
         }
     } else {
         const b = activeDragItem as Building;
         if (!placedBuildings.some(pb => pb.id === b.id)) {
-            if (!isOccupied(i, j, b.width, b.height)) {
-                onPlaceBuilding({ ...b, x: i, y: j });
+            if (!isOccupied(finalI, finalJ, b.width, b.height)) {
+                onPlaceBuilding({ ...b, x: finalI, y: finalJ });
             }
         }
     }
@@ -126,7 +147,14 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const onDragStartMapItem = (e: React.DragEvent, b: PlacedBuilding) => {
-    setActiveDragItem(b);
+    e.dataTransfer.setData('text/plain', b.id);
+    e.dataTransfer.effectAllowed = 'move';
+
+    setTimeout(() => {
+        setActiveDragItem(b);
+        setDragPreviewPos({ x: b.x, y: b.y });
+    }, 0);
+
     const img = new Image();
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     e.dataTransfer.setDragImage(img, 0, 0);
@@ -194,6 +222,9 @@ export const Map: React.FC<MapProps> = ({
   const renderBuilding = (b: PlacedBuilding | (Building & { x: number, y: number }), isGhost = false) => {
     const isCurrentlyBeingDragged = activeDragItem && activeDragItem.id === b.id;
 
+    // When moving an existing building, we want to show it as a ghost at the new position
+    // and hide/fade the original one at the old position.
+
     const pW = gridToScreen(b.x, b.y);
     const pN = gridToScreen(b.x + b.width, b.y);
     const pS = gridToScreen(b.x, b.y + b.height);
@@ -207,9 +238,10 @@ export const Map: React.FC<MapProps> = ({
       <g
         key={b.id + (isGhost ? '-ghost' : '')}
         className={isGhost ? 'pointer-events-none' : 'cursor-move'}
-        style={isCurrentlyBeingDragged && !isGhost ? { opacity: 0, pointerEvents: 'none' } : {}}
+        style={isCurrentlyBeingDragged && !isGhost ? { opacity: 0.2 } : {}}
         draggable={!isGhost}
         onDragStart={(e) => !isGhost && onDragStartMapItem(e, b as PlacedBuilding)}
+        onDragEnd={() => !isGhost && setActiveDragItem(null)}
         onContextMenu={(e) => !isGhost && onContextMenu(e, b as PlacedBuilding)}
       >
         <polygon
@@ -255,6 +287,8 @@ export const Map: React.FC<MapProps> = ({
       onWheel={handleWheel}
       onMouseDown={onMouseDown}
       onDragOver={handleDragOver}
+      onDragEnter={(e) => e.preventDefault()}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <div
@@ -264,7 +298,12 @@ export const Map: React.FC<MapProps> = ({
         }}
         className="absolute"
       >
-        <svg className="overflow-visible">
+        <svg
+            width={gridSize * TILE_WIDTH}
+            height={gridSize * TILE_HEIGHT}
+            viewBox={`0 ${-gridSize * TILE_HEIGHT / 2} ${gridSize * TILE_WIDTH} ${gridSize * TILE_HEIGHT}`}
+            className="overflow-visible pointer-events-auto"
+        >
           <g>
             <polygon
               points={`${west.x},${west.y} ${north.x},${north.y} ${east.x},${east.y} ${south.x},${south.y}`}
@@ -281,10 +320,10 @@ export const Map: React.FC<MapProps> = ({
             {placedBuildings.map(b => renderBuilding(b))}
             {activeDragItem && dragPreviewPos && renderBuilding({ ...activeDragItem, x: dragPreviewPos.x, y: dragPreviewPos.y }, true)}
 
-            <text x={west.x - 20} y={west.y} fill="white" fontSize="32" textAnchor="end" alignmentBaseline="middle" className="font-bold opacity-30">W</text>
-            <text x={east.x + 20} y={east.y} fill="white" fontSize="32" textAnchor="start" alignmentBaseline="middle" className="font-bold opacity-30">E</text>
-            <text x={north.x} y={north.y - 20} fill="white" fontSize="32" textAnchor="middle" alignmentBaseline="baseline" className="font-bold opacity-30">N</text>
-            <text x={south.x} y={south.y + 20} fill="white" fontSize="32" textAnchor="middle" alignmentBaseline="hanging" className="font-bold opacity-30">S</text>
+            <text x={west.x - 30} y={west.y} fill="white" fontSize="48" textAnchor="end" alignmentBaseline="middle" className="font-bold opacity-30 select-none pointer-events-none">WEST</text>
+            <text x={east.x + 30} y={east.y} fill="white" fontSize="48" textAnchor="start" alignmentBaseline="middle" className="font-bold opacity-30 select-none pointer-events-none">EAST</text>
+            <text x={north.x} y={north.y - 30} fill="white" fontSize="48" textAnchor="middle" alignmentBaseline="baseline" className="font-bold opacity-30 select-none pointer-events-none">NORTH</text>
+            <text x={south.x} y={south.y + 30} fill="white" fontSize="48" textAnchor="middle" alignmentBaseline="hanging" className="font-bold opacity-30 select-none pointer-events-none">SOUTH</text>
           </g>
         </svg>
       </div>
