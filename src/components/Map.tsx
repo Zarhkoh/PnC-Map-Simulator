@@ -37,6 +37,7 @@ export const Map: React.FC<MapProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingMap = useRef(false);
   const lastMousePos = useRef<Point>({ x: 0, y: 0 });
+  const dragOffset = useRef<{ i: number, j: number }>({ i: 0, j: 0 });
 
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number, y: number } | null>(null);
   const [hoveredBuildingId, setHoveredBuildingId] = useState<string | null>(null);
@@ -101,10 +102,17 @@ export const Map: React.FC<MapProps> = ({
     const sy = (e.clientY - rect.top - offset.y) / zoom;
 
     const { i, j } = screenToGrid(sx, sy);
-    const exactI = i - activeDragItem.width / 2;
-    const exactJ = j - activeDragItem.height / 2;
 
-    setDragPreviewPos({ x: exactI, y: exactJ });
+    let finalI, finalJ;
+    if ('x' in activeDragItem) {
+        finalI = Math.round(i - dragOffset.current.i);
+        finalJ = Math.round(j - dragOffset.current.j);
+    } else {
+        finalI = Math.round(i - activeDragItem.width / 2);
+        finalJ = Math.round(j - activeDragItem.height / 2);
+    }
+
+    setDragPreviewPos({ x: finalI, y: finalJ });
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -124,10 +132,16 @@ export const Map: React.FC<MapProps> = ({
     const sy = (e.clientY - rect.top - offset.y) / zoom;
 
     const { i, j } = screenToGrid(sx, sy);
-    const finalI = Math.round(i - activeDragItem.width / 2);
-    const finalJ = Math.round(j - activeDragItem.height / 2);
-
     const isExisting = 'x' in activeDragItem;
+
+    let finalI, finalJ;
+    if (isExisting) {
+        finalI = Math.round(i - dragOffset.current.i);
+        finalJ = Math.round(j - dragOffset.current.j);
+    } else {
+        finalI = Math.round(i - activeDragItem.width / 2);
+        finalJ = Math.round(j - activeDragItem.height / 2);
+    }
 
     if (isExisting) {
         const b = activeDragItem as PlacedBuilding;
@@ -147,7 +161,6 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const onDragStartMapItem = (e: React.DragEvent, b: PlacedBuilding) => {
-    e.stopPropagation();
     e.dataTransfer.setData('text/plain', b.id);
     e.dataTransfer.effectAllowed = 'move';
 
@@ -155,6 +168,16 @@ export const Map: React.FC<MapProps> = ({
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     e.dataTransfer.setDragImage(img, 0, 0);
 
+    if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const sx = (e.clientX - rect.left - offset.x) / zoom;
+        const sy = (e.clientY - rect.top - offset.y) / zoom;
+        const { i, j } = screenToGrid(sx, sy);
+        dragOffset.current = { i: i - b.x, j: j - b.y };
+    }
+
+    // Wrap in setTimeout(0) to allow the drag ghost to be captured
+    // before the element's opacity changes.
     setTimeout(() => {
         setActiveDragItem(b);
         setDragPreviewPos({ x: b.x, y: b.y });
@@ -241,15 +264,19 @@ export const Map: React.FC<MapProps> = ({
         key={b.id + (isGhost ? '-ghost' : '')}
         className={isGhost ? 'pointer-events-none' : 'cursor-move'}
         style={isCurrentlyBeingDragged && !isGhost ? { opacity: 0.2 } : {}}
-        draggable={!isGhost}
-        onDragStart={(e) => !isGhost && onDragStartMapItem(e, b as PlacedBuilding)}
-        onDragEnd={() => !isGhost && setActiveDragItem(null)}
         onContextMenu={(e) => !isGhost && onContextMenu(e, b as PlacedBuilding)}
         onMouseEnter={() => !isGhost && setHoveredBuildingId(b.id)}
         onMouseLeave={() => !isGhost && setHoveredBuildingId(null)}
+        pointerEvents={isGhost ? "none" : "auto"}
       >
         <polygon
           points={points}
+          draggable={!isGhost}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            if (!isGhost) onDragStartMapItem(e, b as PlacedBuilding);
+          }}
+          onDragEnd={() => !isGhost && setActiveDragItem(null)}
           fill={isGhost ? (isValid ? b.color : '#ef4444') : (isHovered ? '#f8fafc' : b.color)}
           fillOpacity={isGhost ? 0.6 : 1}
           stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : (isHovered ? "#ffffff" : "rgba(255,255,255,0.4)")}

@@ -17,7 +17,7 @@ function App() {
   const handleAddBuilding = (building: Omit<Building, 'id'>) => {
     const newBuilding: Building = {
       ...building,
-      id: `custom-${Date.now()}`,
+      id: `custom-${crypto.randomUUID()}`,
     }
     setBuildings(prev => [...prev, newBuilding])
   }
@@ -47,7 +47,7 @@ function App() {
   const handleDuplicate = (b: PlacedBuilding) => {
     const newBuilding: PlacedBuilding = {
       ...b,
-      id: `custom-${Date.now()}`,
+      id: `custom-${crypto.randomUUID()}`,
       x: b.x + 1,
       y: b.y + 1,
     }
@@ -286,7 +286,7 @@ const EditBuildingForm: React.FC<{
             <h3 className="font-bold text-lg">Modify {building.name}</h3>
             <button onClick={onClose} className="p-1 hover:bg-slate-700 rounded"><X size={20}/></button>
           </div>
-          <div className="p-6 space-y-4">
+          <div className="p-4 space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-400 uppercase">Building Name</label>
               <input
@@ -296,37 +296,35 @@ const EditBuildingForm: React.FC<{
                 className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-400 uppercase">Power</label>
                 <input
                   type="number"
                   value={power}
                   onChange={e => setPower(Number(e.target.value))}
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-400 uppercase">Width</label>
-                  <input
-                    type="number"
-                    value={width}
-                    onChange={e => setWidth(Number(e.target.value))}
-                    min="1"
-                    className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-400 uppercase">Height</label>
-                  <input
-                    type="number"
-                    value={height}
-                    onChange={e => setHeight(Number(e.target.value))}
-                    min="1"
-                    className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-400 uppercase">Width</label>
+                <input
+                  type="number"
+                  value={width}
+                  onChange={e => setWidth(Number(e.target.value))}
+                  min="1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-400 uppercase">Height</label>
+                <input
+                  type="number"
+                  value={height}
+                  onChange={e => setHeight(Number(e.target.value))}
+                  min="1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
+                />
               </div>
             </div>
             <div className="space-y-1">
@@ -335,7 +333,7 @@ const EditBuildingForm: React.FC<{
                 type="color"
                 value={color}
                 onChange={e => setColor(e.target.value)}
-                className="w-full h-10 bg-slate-900 border border-slate-700 rounded p-1 focus:outline-none"
+                className="w-full h-10 bg-slate-900 border border-slate-700 rounded cursor-pointer"
               />
             </div>
           </div>
