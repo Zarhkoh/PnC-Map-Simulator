@@ -11,6 +11,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, building: PlacedBuilding } | null>(null)
   const [editingBuilding, setEditingBuilding] = useState<PlacedBuilding | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [activeDragItem, setActiveDragItem] = useState<Building | PlacedBuilding | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleAddBuilding = (building: Omit<Building, 'id'>) => {
@@ -103,7 +104,11 @@ function App() {
   const placedBuildingIds = new Set(placedBuildings.map(b => b.id))
 
   return (
-    <div className="fixed inset-0 bg-slate-900 text-white flex flex-col overflow-hidden" onClick={() => setContextMenu(null)}>
+    <div
+      className="fixed inset-0 bg-slate-900 text-white flex flex-col overflow-hidden"
+      onClick={() => setContextMenu(null)}
+      onDragEnd={() => setActiveDragItem(null)}
+    >
       <header className="h-12 border-b border-slate-700 flex items-center px-4 bg-slate-800 shrink-0 z-10">
         <h1 className="font-bold text-lg tracking-tight italic">HIVE<span className="text-blue-500">MAP</span></h1>
         <div className="ml-auto flex gap-2">
@@ -137,6 +142,7 @@ function App() {
           onUpdateBuilding={handleUpdateBuilding}
           onDeleteBuilding={handleDeleteBuilding}
           placedBuildingIds={placedBuildingIds}
+          setActiveDragItem={setActiveDragItem}
         />
         <div className="flex-1 relative bg-slate-950">
            <Map
@@ -149,6 +155,9 @@ function App() {
                 setContextMenu({ x: e.clientX, y: e.clientY, building });
             }}
             allBuildings={buildings}
+            activeDragItem={activeDragItem}
+            setActiveDragItem={setActiveDragItem}
+            isOccupied={isOccupied}
            />
         </div>
       </main>

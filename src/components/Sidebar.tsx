@@ -1,6 +1,23 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, X, GripVertical } from 'lucide-react';
 import { Building } from '../types';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface SidebarProps {
   buildings: Building[];
@@ -8,6 +25,8 @@ interface SidebarProps {
   onUpdateBuilding: (id: string, updates: Partial<Building>) => void;
   onDeleteBuilding: (id: string) => void;
   placedBuildingIds: Set<string>;
+  setActiveDragItem: (item: Building | null) => void;
+  onReorderBuildings: (buildings: Building[]) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -15,7 +34,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAddBuilding,
   onUpdateBuilding,
   onDeleteBuilding,
-  placedBuildingIds
+  placedBuildingIds,
+  setActiveDragItem,
+  onReorderBuildings
 }) => {
   const [isAllianceOpen, setIsAllianceOpen] = useState(true);
   const [isCustomOpen, setIsCustomOpen] = useState(true);
@@ -23,6 +44,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const allianceBuildings = buildings.filter(b => b.isBase);
   const customBuildings = buildings.filter(b => !b.isBase);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+        activationConstraint: {
+            distance: 8,
+        },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+        const oldIndex = buildings.findIndex((b) => b.id === active.id);
+        const newIndex = buildings.findIndex((b) => b.id === over.id);
+        onReorderBuildings(arrayMove(buildings, oldIndex, newIndex));
+    }
+  };
 
   return (
     <aside className="w-64 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 z-10">
@@ -38,13 +79,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           {isAllianceOpen && (
             <div className="p-2 space-y-1">
-              {allianceBuildings.map(b => (
-                <BuildingItem
-                  key={b.id}
-                  building={b}
-                  isPlaced={placedBuildingIds.has(b.id)}
-                />
-              ))}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={allianceBuildings.map(b => b.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {allianceBuildings.map(b => (
+                    <BuildingItem
+                      key={b.id}
+                      building={b}
+                      isPlaced={placedBuildingIds.has(b.id)}
+                      setActiveDragItem={setActiveDragItem}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
             </div>
           )}
         </div>
@@ -60,14 +113,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           {isCustomOpen && (
             <div className="p-2 space-y-1">
-              {customBuildings.map(b => (
-                <BuildingItem
-                  key={b.id}
-                  building={b}
-                  isPlaced={placedBuildingIds.has(b.id)}
-                  onDelete={() => onDeleteBuilding(b.id)}
-                />
-              ))}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={customBuildings.map(b => b.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {customBuildings.map(b => (
+                    <BuildingItem
+                      key={b.id}
+                      building={b}
+                      isPlaced={placedBuildingIds.has(b.id)}
+                      onDelete={() => onDeleteBuilding(b.id)}
+                      setActiveDragItem={setActiveDragItem}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
               <button
                 onClick={() => setShowAddForm(true)}
                 className="w-full p-2 flex items-center justify-center gap-2 rounded border border-dashed border-slate-600 hover:border-slate-400 hover:bg-slate-700 transition-colors text-sm text-slate-400"
@@ -96,12 +161,31 @@ const BuildingItem: React.FC<{
   building: Building;
   isPlaced: boolean;
   onDelete?: () => void;
-}> = ({ building, isPlaced, onDelete }) => {
+  setActiveDragItem: (item: Building | null) => void;
+}> = ({ building, isPlaced, onDelete, setActiveDragItem }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: building.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 20 : undefined,
+  };
+
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={cn(
         "group p-3 rounded bg-slate-700/50 border border-slate-600 flex flex-col gap-1 cursor-grab active:cursor-grabbing hover:bg-slate-700 transition-all",
-        isPlaced && "opacity-50 grayscale cursor-not-allowed"
+        isPlaced && "opacity-50 grayscale cursor-not-allowed",
+        isDragging && "opacity-50"
       )}
       draggable={!isPlaced}
       onDragStart={(e) => {
@@ -109,11 +193,23 @@ const BuildingItem: React.FC<{
             e.preventDefault();
             return;
         }
-        e.dataTransfer.setData('buildingId', building.id);
+        setActiveDragItem(building);
+        const img = new Image();
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        e.dataTransfer.setDragImage(img, 0, 0);
       }}
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium text-sm truncate">{building.name}</span>
+        <div className="flex items-center gap-2 overflow-hidden">
+            <button
+                {...attributes}
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing p-0.5 hover:bg-slate-600 rounded text-slate-500"
+            >
+                <GripVertical size={14} />
+            </button>
+            <span className="font-medium text-sm truncate">{building.name}</span>
+        </div>
         {onDelete && (
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}

@@ -13,6 +13,9 @@ interface MapProps {
   onPlaceBuilding: (building: PlacedBuilding) => void;
   onMoveBuilding: (id: string, x: number, y: number) => void;
   onContextMenu: (e: React.MouseEvent, building: PlacedBuilding) => void;
+  activeDragItem: Building | PlacedBuilding | null;
+  setActiveDragItem: (item: Building | PlacedBuilding | null) => void;
+  isOccupied: (x: number, y: number, width: number, height: number, excludeId?: string) => boolean;
 }
 
 const TILE_WIDTH = 64;
@@ -24,7 +27,10 @@ export const Map: React.FC<MapProps> = ({
     allBuildings,
     onPlaceBuilding,
     onMoveBuilding,
-    onContextMenu
+    onContextMenu,
+    activeDragItem,
+    setActiveDragItem,
+    isOccupied
 }) => {
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState<Point>({ x: 400, y: 300 });
@@ -32,12 +38,7 @@ export const Map: React.FC<MapProps> = ({
   const isDraggingMap = useRef(false);
   const lastMousePos = useRef<Point>({ x: 0, y: 0 });
 
-  const [draggedBuilding, setDraggedBuilding] = useState<{
-    building: Building | PlacedBuilding;
-    x: number;
-    y: number;
-    isNew: boolean;
-  } | null>(null);
+  const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number, y: number } | null>(null);
 
   const gridToScreen = (i: number, j: number) => {
     return {
@@ -59,26 +60,7 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0) {
-        isDraggingMap.current = true;
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
-    }
-  };
-
-  const isOccupied = (x: number, y: number, width: number, height: number, excludeId?: string) => {
-    for (let i = x; i < x + width; i++) {
-      for (let j = y; j < y + height; j++) {
-        if (i < 0 || j < 0 || i >= gridSize || j >= gridSize) return true;
-
-        for (const b of placedBuildings) {
-          if (b.id === excludeId) continue;
-          if (i >= b.x && i < b.x + b.width && j >= b.y && j < b.y + b.height) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    // Zoom logic only, panning removed
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -90,54 +72,38 @@ export const Map: React.FC<MapProps> = ({
     const sy = (e.clientY - rect.top - offset.y) / zoom;
 
     const { i, j } = screenToGrid(sx, sy);
-
-    if (draggedBuilding) {
-        setDraggedBuilding(prev => prev ? { ...prev, x: i, y: j } : null);
-    } else {
-        const buildingId = e.dataTransfer.getData('buildingId');
-        if (buildingId) {
-            const b = allBuildings.find(ab => ab.id === buildingId);
-            if (b) {
-                setDraggedBuilding({ building: b, x: i, y: j, isNew: true });
-            }
-        }
-    }
+    setDragPreviewPos({ x: i, y: j });
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const buildingId = e.dataTransfer.getData('buildingId');
-    const isExisting = e.dataTransfer.getData('isExisting') === 'true';
+    if (!activeDragItem || !dragPreviewPos) return;
 
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const sx = (e.clientX - rect.left - offset.x) / zoom;
-    const sy = (e.clientY - rect.top - offset.y) / zoom;
-    const { i, j } = screenToGrid(sx, sy);
+    const { x: i, y: j } = dragPreviewPos;
+    const isExisting = 'x' in activeDragItem;
 
     if (isExisting) {
-        const b = placedBuildings.find(pb => pb.id === buildingId);
-        if (b && !isOccupied(i, j, b.width, b.height, b.id)) {
+        const b = activeDragItem as PlacedBuilding;
+        if (!isOccupied(i, j, b.width, b.height, b.id)) {
             onMoveBuilding(b.id, i, j);
         }
     } else {
-        const b = allBuildings.find(ab => ab.id === buildingId);
-        if (b && !placedBuildings.some(pb => pb.id === b.id)) {
+        const b = activeDragItem as Building;
+        if (!placedBuildings.some(pb => pb.id === b.id)) {
             if (!isOccupied(i, j, b.width, b.height)) {
                 onPlaceBuilding({ ...b, x: i, y: j });
             }
         }
     }
-    setDraggedBuilding(null);
+    setActiveDragItem(null);
+    setDragPreviewPos(null);
   };
 
   const onDragStartMapItem = (e: React.DragEvent, b: PlacedBuilding) => {
-    e.dataTransfer.setData('buildingId', b.id);
-    e.dataTransfer.setData('isExisting', 'true');
+    setActiveDragItem(b);
     const img = new Image();
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     e.dataTransfer.setDragImage(img, 0, 0);
-    setDraggedBuilding({ building: b, x: b.x, y: b.y, isNew: false });
   };
 
   useEffect(() => {
@@ -168,6 +134,9 @@ export const Map: React.FC<MapProps> = ({
   const east = gridToScreen(gridSize, gridSize);
 
   const renderBuilding = (b: PlacedBuilding | (Building & { x: number, y: number }), isGhost = false) => {
+    const isCurrentlyBeingDragged = activeDragItem && activeDragItem.id === b.id;
+    if (isCurrentlyBeingDragged && !isGhost) return null;
+
     const pW = gridToScreen(b.x, b.y);
     const pN = gridToScreen(b.x + b.width, b.y);
     const pS = gridToScreen(b.x, b.y + b.height);
@@ -175,18 +144,22 @@ export const Map: React.FC<MapProps> = ({
 
     const points = `${pW.x},${pW.y} ${pN.x},${pN.y} ${pE.x},${pE.y} ${pS.x},${pS.y}`;
 
+    const isValid = isGhost ? !isOccupied(b.x, b.y, b.width, b.height, 'x' in b ? (b as PlacedBuilding).id : undefined) : true;
+
     return (
       <g
         key={b.id + (isGhost ? '-ghost' : '')}
-        className={isGhost ? 'pointer-events-none opacity-50' : 'cursor-move'}
+        className={isGhost ? 'pointer-events-none' : 'cursor-move'}
         onDragStart={(e) => !isGhost && onDragStartMapItem(e, b as PlacedBuilding)}
         onContextMenu={(e) => !isGhost && onContextMenu(e, b as PlacedBuilding)}
       >
         <polygon
           points={points}
-          fill={b.color}
-          stroke="white"
-          strokeWidth={isGhost ? 0.5 : 1}
+          fill={isGhost ? (isValid ? b.color : '#ef4444') : b.color}
+          fillOpacity={isGhost ? 0.6 : 1}
+          stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : "rgba(255,255,255,0.4)"}
+          strokeWidth={isGhost ? 3 : 1}
+          style={isGhost ? { filter: `drop-shadow(0 0 10px ${isValid ? '#3b82f6' : '#ef4444'})` } : {}}
         />
         <text
             x={(pW.x + pE.x) / 2}
@@ -245,7 +218,7 @@ export const Map: React.FC<MapProps> = ({
             ))}
 
             {placedBuildings.map(b => renderBuilding(b))}
-            {draggedBuilding && renderBuilding({ ...draggedBuilding.building, x: draggedBuilding.x, y: draggedBuilding.y }, true)}
+            {activeDragItem && dragPreviewPos && renderBuilding({ ...activeDragItem, x: dragPreviewPos.x, y: dragPreviewPos.y }, true)}
 
             <text x={west.x - 20} y={west.y} fill="white" fontSize="32" textAnchor="end" alignmentBaseline="middle" className="font-bold opacity-30">W</text>
             <text x={east.x + 20} y={east.y} fill="white" fontSize="32" textAnchor="start" alignmentBaseline="middle" className="font-bold opacity-30">E</text>
