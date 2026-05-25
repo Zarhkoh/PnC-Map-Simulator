@@ -36,6 +36,7 @@ export const Map: React.FC<MapProps> = ({
   const [offset, setOffset] = useState<Point>({ x: 400, y: 300 });
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingMap = useRef(false);
+  const isMovingBuilding = useRef(false);
   const lastMousePos = useRef<Point>({ x: 0, y: 0 });
   const dragOffset = useRef<{ i: number, j: number }>({ i: 0, j: 0 });
 
@@ -83,11 +84,12 @@ export const Map: React.FC<MapProps> = ({
     }
   };
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  const onPointerDown = (e: React.PointerEvent) => {
     if (e.button === 1) { // Middle mouse button
         e.preventDefault();
         isDraggingMap.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
+        (e.target as Element).setPointerCapture(e.pointerId);
     }
   };
 
@@ -160,13 +162,12 @@ export const Map: React.FC<MapProps> = ({
     setDragPreviewPos(null);
   };
 
-  const onDragStartMapItem = (e: React.DragEvent, b: PlacedBuilding) => {
-    e.dataTransfer.setData('text/plain', b.id);
-    e.dataTransfer.effectAllowed = 'move';
+  const onPointerDownBuilding = (e: React.PointerEvent, b: PlacedBuilding) => {
+    if (e.button !== 0) return; // Only left click
+    e.stopPropagation();
 
-    const img = new Image();
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    e.dataTransfer.setDragImage(img, 0, 0);
+    isMovingBuilding.current = true;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
 
     if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
@@ -176,12 +177,8 @@ export const Map: React.FC<MapProps> = ({
         dragOffset.current = { i: i - b.x, j: j - b.y };
     }
 
-    // Wrap in setTimeout(0) to allow the drag ghost to be captured
-    // before the element's opacity changes.
-    setTimeout(() => {
-        setActiveDragItem(b);
-        setDragPreviewPos({ x: b.x, y: b.y });
-    }, 0);
+    setActiveDragItem(b);
+    setDragPreviewPos({ x: b.x, y: b.y });
   };
 
   useEffect(() => {
@@ -215,28 +212,49 @@ export const Map: React.FC<MapProps> = ({
   }, [gridSize]);
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (isDraggingMap.current) {
         const dx = e.clientX - lastMousePos.current.x;
         const dy = e.clientY - lastMousePos.current.y;
         setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
         lastMousePos.current = { x: e.clientX, y: e.clientY };
+      } else if (isMovingBuilding.current && activeDragItem && 'x' in activeDragItem) {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const sx = (e.clientX - rect.left - offset.x) / zoom;
+        const sy = (e.clientY - rect.top - offset.y) / zoom;
+        const { i, j } = screenToGrid(sx, sy);
+
+        const finalI = Math.round(i - dragOffset.current.i);
+        const finalJ = Math.round(j - dragOffset.current.j);
+
+        setDragPreviewPos({ x: finalI, y: finalJ });
       }
     };
 
-    const handleMouseUp = (e: MouseEvent) => {
+    const handlePointerUp = (e: PointerEvent) => {
       if (e.button === 1) {
           isDraggingMap.current = false;
+      } else if (e.button === 0 && isMovingBuilding.current && activeDragItem && 'x' in activeDragItem) {
+          if (dragPreviewPos) {
+              const b = activeDragItem as PlacedBuilding;
+              if (!isOccupied(dragPreviewPos.x, dragPreviewPos.y, b.width, b.height, b.id)) {
+                  onMoveBuilding(b.id, dragPreviewPos.x, dragPreviewPos.y);
+              }
+          }
+          isMovingBuilding.current = false;
+          setActiveDragItem(null);
+          setDragPreviewPos(null);
       }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, []);
+  }, [activeDragItem, dragPreviewPos, offset, zoom, gridSize, isOccupied, onMoveBuilding, setActiveDragItem]);
 
   const west = gridToScreen(0, 0);
   const north = gridToScreen(gridSize, 0);
@@ -271,12 +289,9 @@ export const Map: React.FC<MapProps> = ({
       >
         <polygon
           points={points}
-          draggable={!isGhost}
-          onDragStart={(e) => {
-            e.stopPropagation();
-            if (!isGhost) onDragStartMapItem(e, b as PlacedBuilding);
+          onPointerDown={(e) => {
+            if (!isGhost) onPointerDownBuilding(e, b as PlacedBuilding);
           }}
-          onDragEnd={() => !isGhost && setActiveDragItem(null)}
           fill={isGhost ? (isValid ? b.color : '#ef4444') : (isHovered ? '#f8fafc' : b.color)}
           fillOpacity={isGhost ? 0.6 : 1}
           stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : (isHovered ? "#ffffff" : "rgba(255,255,255,0.4)")}
@@ -321,7 +336,7 @@ export const Map: React.FC<MapProps> = ({
       ref={containerRef}
       className="w-full h-full cursor-grab active:cursor-grabbing select-none overflow-hidden bg-slate-950 relative"
       onWheel={handleWheel}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onDragOver={handleDragOver}
       onDragEnter={(e) => e.preventDefault()}
       onDragLeave={handleDragLeave}
