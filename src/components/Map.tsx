@@ -60,7 +60,11 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
-    // Zoom logic only, panning removed
+    if (e.button === 1) { // Middle mouse button
+        e.preventDefault();
+        isDraggingMap.current = true;
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -107,6 +111,36 @@ export const Map: React.FC<MapProps> = ({
   };
 
   useEffect(() => {
+    if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+
+        // Full map width in pixels = gridSize * TILE_WIDTH
+        // Full map height in pixels = gridSize * TILE_HEIGHT
+        const mapWidth = gridSize * TILE_WIDTH;
+        const mapHeight = gridSize * TILE_HEIGHT;
+
+        // Calculate zoom to fit
+        const zoomX = (rect.width * 0.8) / mapWidth;
+        const zoomY = (rect.height * 0.8) / mapHeight;
+        const initialZoom = Math.min(zoomX, zoomY, 1);
+
+        setZoom(initialZoom);
+
+        // Center the map
+        // The isometric grid's center in screen coordinates at (0,0) offset is:
+        // x: (gridSize/2 + gridSize/2) * (TILE_WIDTH/2) = gridSize * TILE_WIDTH / 2
+        // y: (gridSize/2 - gridSize/2) * (TILE_HEIGHT/2) = 0
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+
+        setOffset({
+            x: centerX - (gridSize * (TILE_WIDTH / 2)) * initialZoom,
+            y: centerY
+        });
+    }
+  }, [gridSize]);
+
+  useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingMap.current) {
         const dx = e.clientX - lastMousePos.current.x;
@@ -116,8 +150,10 @@ export const Map: React.FC<MapProps> = ({
       }
     };
 
-    const handleMouseUp = () => {
-      isDraggingMap.current = false;
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 1) {
+          isDraggingMap.current = false;
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
