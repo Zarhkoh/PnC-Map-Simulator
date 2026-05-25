@@ -202,11 +202,13 @@ const BuildingItem: React.FC<{
         e.dataTransfer.setData('text/plain', building.id);
         e.dataTransfer.effectAllowed = 'move';
 
-        setActiveDragItem(building);
-
         const img = new Image();
         img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         e.dataTransfer.setDragImage(img, 0, 0);
+
+        setTimeout(() => {
+          setActiveDragItem(building);
+        }, 0);
       }}
       onDragEnd={() => setActiveDragItem(null)}
     >
@@ -303,7 +305,7 @@ const AddBuildingForm: React.FC<{
               </div>
             </div>
           </div>
-          <div className="space-y-1 px-6">
+          <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-400 uppercase">Color</label>
             <input
               type="color"

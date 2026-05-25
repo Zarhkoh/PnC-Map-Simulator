@@ -39,18 +39,19 @@ export const Map: React.FC<MapProps> = ({
   const lastMousePos = useRef<Point>({ x: 0, y: 0 });
 
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number, y: number } | null>(null);
+  const [hoveredBuildingId, setHoveredBuildingId] = useState<string | null>(null);
 
   const gridToScreen = (i: number, j: number) => {
     return {
       x: (i + j) * (TILE_WIDTH / 2),
-      y: (j - i) * (TILE_HEIGHT / 2),
+      y: (j - i + gridSize) * (TILE_HEIGHT / 2),
     };
   };
 
   const screenToGrid = (sx: number, sy: number) => {
-    const i = (sx / TILE_WIDTH) - (sy / TILE_HEIGHT);
-    const j = (sx / TILE_WIDTH) + (sy / TILE_HEIGHT);
-    return { i: Math.floor(i), j: Math.floor(j) };
+    const i = (sx / TILE_WIDTH) - (sy / TILE_HEIGHT) + (gridSize / 2);
+    const j = (sx / TILE_WIDTH) + (sy / TILE_HEIGHT) - (gridSize / 2);
+    return { i, j };
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -91,6 +92,7 @@ export const Map: React.FC<MapProps> = ({
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     if (!containerRef.current || !activeDragItem) return;
 
@@ -99,13 +101,10 @@ export const Map: React.FC<MapProps> = ({
     const sy = (e.clientY - rect.top - offset.y) / zoom;
 
     const { i, j } = screenToGrid(sx, sy);
-    const centeredI = i - Math.floor(activeDragItem.width / 2);
-    const centeredJ = j - Math.floor(activeDragItem.height / 2);
+    const exactI = i - activeDragItem.width / 2;
+    const exactJ = j - activeDragItem.height / 2;
 
-    // Only update if position actually changed to reduce re-renders
-    if (!dragPreviewPos || dragPreviewPos.x !== centeredI || dragPreviewPos.y !== centeredJ) {
-        setDragPreviewPos({ x: centeredI, y: centeredJ });
-    }
+    setDragPreviewPos({ x: exactI, y: exactJ });
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -117,6 +116,7 @@ export const Map: React.FC<MapProps> = ({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!activeDragItem || !containerRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
@@ -124,8 +124,8 @@ export const Map: React.FC<MapProps> = ({
     const sy = (e.clientY - rect.top - offset.y) / zoom;
 
     const { i, j } = screenToGrid(sx, sy);
-    const finalI = i - Math.floor(activeDragItem.width / 2);
-    const finalJ = j - Math.floor(activeDragItem.height / 2);
+    const finalI = Math.round(i - activeDragItem.width / 2);
+    const finalJ = Math.round(j - activeDragItem.height / 2);
 
     const isExisting = 'x' in activeDragItem;
 
@@ -147,17 +147,18 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const onDragStartMapItem = (e: React.DragEvent, b: PlacedBuilding) => {
+    e.stopPropagation();
     e.dataTransfer.setData('text/plain', b.id);
     e.dataTransfer.effectAllowed = 'move';
+
+    const img = new Image();
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    e.dataTransfer.setDragImage(img, 0, 0);
 
     setTimeout(() => {
         setActiveDragItem(b);
         setDragPreviewPos({ x: b.x, y: b.y });
     }, 0);
-
-    const img = new Image();
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    e.dataTransfer.setDragImage(img, 0, 0);
   };
 
   useEffect(() => {
@@ -185,7 +186,7 @@ export const Map: React.FC<MapProps> = ({
 
         setOffset({
             x: centerX - (gridSize * (TILE_WIDTH / 2)) * initialZoom,
-            y: centerY
+            y: centerY - (gridSize * (TILE_HEIGHT / 2)) * initialZoom
         });
     }
   }, [gridSize]);
@@ -221,6 +222,7 @@ export const Map: React.FC<MapProps> = ({
 
   const renderBuilding = (b: PlacedBuilding | (Building & { x: number, y: number }), isGhost = false) => {
     const isCurrentlyBeingDragged = activeDragItem && activeDragItem.id === b.id;
+    const isHovered = !isGhost && hoveredBuildingId === b.id;
 
     // When moving an existing building, we want to show it as a ghost at the new position
     // and hide/fade the original one at the old position.
@@ -243,14 +245,21 @@ export const Map: React.FC<MapProps> = ({
         onDragStart={(e) => !isGhost && onDragStartMapItem(e, b as PlacedBuilding)}
         onDragEnd={() => !isGhost && setActiveDragItem(null)}
         onContextMenu={(e) => !isGhost && onContextMenu(e, b as PlacedBuilding)}
+        onMouseEnter={() => !isGhost && setHoveredBuildingId(b.id)}
+        onMouseLeave={() => !isGhost && setHoveredBuildingId(null)}
       >
         <polygon
           points={points}
-          fill={isGhost ? (isValid ? b.color : '#ef4444') : b.color}
+          fill={isGhost ? (isValid ? b.color : '#ef4444') : (isHovered ? '#f8fafc' : b.color)}
           fillOpacity={isGhost ? 0.6 : 1}
-          stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : "rgba(255,255,255,0.4)"}
-          strokeWidth={isGhost ? 3 : 1}
-          style={isGhost ? { filter: `drop-shadow(0 0 10px ${isValid ? '#3b82f6' : '#ef4444'})` } : {}}
+          stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : (isHovered ? "#ffffff" : "rgba(255,255,255,0.4)")}
+          strokeWidth={isGhost || isHovered ? 4 : 1}
+          style={(isGhost || isHovered) ? {
+            filter: isGhost
+              ? `drop-shadow(0 0 10px ${isValid ? '#3b82f6' : '#ef4444'})`
+              : `drop-shadow(0 0 20px rgba(255,255,255,0.9))`
+          } : {}}
+          className={isGhost ? "" : "transition-all duration-150"}
         />
         <text
             x={(pW.x + pE.x) / 2}
@@ -301,7 +310,7 @@ export const Map: React.FC<MapProps> = ({
         <svg
             width={gridSize * TILE_WIDTH}
             height={gridSize * TILE_HEIGHT}
-            viewBox={`0 ${-gridSize * TILE_HEIGHT / 2} ${gridSize * TILE_WIDTH} ${gridSize * TILE_HEIGHT}`}
+            viewBox={`0 0 ${gridSize * TILE_WIDTH} ${gridSize * TILE_HEIGHT}`}
             className="overflow-visible pointer-events-auto"
         >
           <g>
