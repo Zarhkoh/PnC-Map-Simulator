@@ -54,9 +54,31 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent) => {
+    if (!containerRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
     const delta = -e.deltaY;
     const factor = Math.pow(1.1, delta / 100);
-    setZoom((prev) => Math.min(Math.max(prev * factor, 0.1), 5));
+    const newZoom = Math.min(Math.max(zoom * factor, 0.1), 5);
+
+    if (newZoom !== zoom) {
+        const zoomRatio = newZoom / zoom;
+
+        // Calculate new offset to keep mouse position fixed
+        // (mouseX - offset.x) / zoom = (mouseX - newOffset.x) / newZoom
+        // mouseX - offset.x = (mouseX - newOffset.x) / zoomRatio
+        // zoomRatio * (mouseX - offset.x) = mouseX - newOffset.x
+        // newOffset.x = mouseX - zoomRatio * (mouseX - offset.x)
+
+        setOffset(prev => ({
+            x: mouseX - zoomRatio * (mouseX - prev.x),
+            y: mouseY - zoomRatio * (mouseY - prev.y)
+        }));
+        setZoom(newZoom);
+    }
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
@@ -171,7 +193,6 @@ export const Map: React.FC<MapProps> = ({
 
   const renderBuilding = (b: PlacedBuilding | (Building & { x: number, y: number }), isGhost = false) => {
     const isCurrentlyBeingDragged = activeDragItem && activeDragItem.id === b.id;
-    if (isCurrentlyBeingDragged && !isGhost) return null;
 
     const pW = gridToScreen(b.x, b.y);
     const pN = gridToScreen(b.x + b.width, b.y);
@@ -186,6 +207,8 @@ export const Map: React.FC<MapProps> = ({
       <g
         key={b.id + (isGhost ? '-ghost' : '')}
         className={isGhost ? 'pointer-events-none' : 'cursor-move'}
+        style={isCurrentlyBeingDragged && !isGhost ? { opacity: 0, pointerEvents: 'none' } : {}}
+        draggable={!isGhost}
         onDragStart={(e) => !isGhost && onDragStartMapItem(e, b as PlacedBuilding)}
         onContextMenu={(e) => !isGhost && onContextMenu(e, b as PlacedBuilding)}
       >
@@ -208,17 +231,19 @@ export const Map: React.FC<MapProps> = ({
         >
             {b.name}
         </text>
-        <text
-            x={(pW.x + pE.x) / 2}
-            y={(pW.y + pE.y) / 2 + 8}
-            fill="white"
-            fontSize="8"
-            textAnchor="middle"
-            className="pointer-events-none"
-            style={{ textShadow: '1px 1px 2px black' }}
-        >
-            {b.power.toLocaleString()}
-        </text>
+        {!b.isBase && (
+          <text
+              x={(pW.x + pE.x) / 2}
+              y={(pW.y + pE.y) / 2 + 8}
+              fill="white"
+              fontSize="8"
+              textAnchor="middle"
+              className="pointer-events-none"
+              style={{ textShadow: '1px 1px 2px black' }}
+          >
+              {b.power.toLocaleString()}
+          </text>
+        )}
       </g>
     );
   };

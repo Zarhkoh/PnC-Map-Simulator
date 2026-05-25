@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, X, GripVertical } from 'lucide-react';
 import { Building } from '../types';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 import {
   DndContext,
   closestCenter,
@@ -221,7 +227,7 @@ const BuildingItem: React.FC<{
       </div>
       <div className="flex items-center justify-between text-[10px] text-slate-400">
         <span>Size: {building.width}x{building.height}</span>
-        <span>Power: {building.power.toLocaleString()}</span>
+        {!building.isBase && <span>Power: {building.power.toLocaleString()}</span>}
       </div>
       <div
         className="h-1 w-full rounded-full"
@@ -315,12 +321,4 @@ const AddBuildingForm: React.FC<{
       </div>
     </div>
   );
-}
-
-// Utility to merge tailwind classes (I'll need to define it or import it)
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
 }

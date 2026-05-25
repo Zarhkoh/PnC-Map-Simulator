@@ -36,6 +36,10 @@ function App() {
     setPlacedBuildings(prev => [...prev, building])
   }
 
+  const handleReorderBuildings = (newBuildings: Building[]) => {
+    setBuildings(newBuildings);
+  }
+
   const handleMoveBuilding = (id: string, x: number, y: number) => {
     setPlacedBuildings(prev => prev.map(b => b.id === id ? { ...b, x, y } : b))
   }
@@ -143,6 +147,7 @@ function App() {
           onDeleteBuilding={handleDeleteBuilding}
           placedBuildingIds={placedBuildingIds}
           setActiveDragItem={setActiveDragItem}
+          onReorderBuildings={handleReorderBuildings}
         />
         <div className="flex-1 relative bg-slate-950">
            <Map
