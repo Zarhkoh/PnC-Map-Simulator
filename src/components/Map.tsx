@@ -613,6 +613,21 @@ export const Map: React.FC<MapProps> = ({
             }}
         />
       )}
+
+      <div className="absolute bottom-4 right-4 bg-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-lg p-3 text-xs text-slate-300 space-y-1.5 pointer-events-none select-none shadow-xl">
+        <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-100 italic">Left click :</span>
+            <span>Move buildings</span>
+        </div>
+        <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-100 italic">Middle click :</span>
+            <span>Pan view</span>
+        </div>
+        <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-100 italic">Shift + click :</span>
+            <span>Multi-selection</span>
+        </div>
+      </div>
     </div>
   );
 };
