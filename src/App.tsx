@@ -2,12 +2,14 @@ import { useState, useRef } from 'react'
 import { Map } from './components/Map'
 import { Sidebar } from './components/Sidebar'
 import { Building, INITIAL_BUILDINGS, PlacedBuilding } from './types'
-import { X, Download, Upload, Settings } from 'lucide-react'
+import { X, Download, Upload, Settings, PanelLeftOpen, PanelLeftClose } from 'lucide-react'
 
 function App() {
   const [gridSize, setGridSize] = useState(50)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [buildings, setBuildings] = useState<Building[]>(INITIAL_BUILDINGS)
   const [placedBuildings, setPlacedBuildings] = useState<PlacedBuilding[]>([])
+  const [selectedBuildingIds, setSelectedBuildingIds] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, building: PlacedBuilding } | null>(null)
   const [editingBuilding, setEditingBuilding] = useState<PlacedBuilding | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -40,8 +42,15 @@ function App() {
     setBuildings(newBuildings);
   }
 
-  const handleMoveBuilding = (id: string, x: number, y: number) => {
-    setPlacedBuildings(prev => prev.map(b => b.id === id ? { ...b, x, y } : b))
+  const handleMoveBuildings = (ids: string[], dx: number, dy: number) => {
+    const toMove = placedBuildings.filter(b => ids.includes(b.id));
+    const canMove = toMove.every(b => !isOccupied(b.x + dx, b.y + dy, b.width, b.height, ids));
+
+    if (canMove) {
+      setPlacedBuildings(prev => prev.map(b =>
+        ids.includes(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b
+      ));
+    }
   }
 
   const handleDuplicate = (b: PlacedBuilding) => {
@@ -57,10 +66,11 @@ function App() {
     setContextMenu(null);
   }
 
-  const isOccupied = (x: number, y: number, width: number, height: number, excludeId?: string) => {
+  const isOccupied = (x: number, y: number, width: number, height: number, excludeId?: string | string[]) => {
     if (x < 0 || y < 0 || x + width > gridSize || y + height > gridSize) return true;
+    const excludeIds = Array.isArray(excludeId) ? excludeId : (excludeId ? [excludeId] : []);
     return placedBuildings.some(b => {
-      if (b.id === excludeId) return false;
+      if (excludeIds.includes(b.id)) return false;
       return (
         x < b.x + b.width &&
         x + width > b.x &&
@@ -111,8 +121,17 @@ function App() {
       className="fixed inset-0 bg-slate-900 text-white flex flex-col overflow-hidden"
       onClick={() => setContextMenu(null)}
     >
-      <header className="h-12 border-b border-slate-700 flex items-center px-4 bg-slate-800 shrink-0 z-10">
-        <h1 className="font-bold text-lg tracking-tight italic">HIVE<span className="text-blue-500">MAP</span></h1>
+      <header className="h-12 border-b border-slate-700 flex items-center px-4 bg-slate-800 shrink-0 z-20">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-1.5 hover:bg-slate-700 rounded text-slate-400 transition-colors"
+            title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+          >
+            {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </button>
+          <h1 className="font-bold text-lg tracking-tight italic">HIVE<span className="text-blue-500">MAP</span></h1>
+        </div>
         <div className="ml-auto flex gap-2">
            <button
             onClick={() => setShowSettings(true)}
@@ -137,8 +156,9 @@ function App() {
            </button>
         </div>
       </header>
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative">
         <Sidebar
+          isOpen={isSidebarOpen}
           buildings={buildings}
           onAddBuilding={handleAddBuilding}
           onUpdateBuilding={handleUpdateBuilding}
@@ -152,7 +172,9 @@ function App() {
             gridSize={gridSize}
             placedBuildings={placedBuildings}
             onPlaceBuilding={handlePlaceBuilding}
-            onMoveBuilding={handleMoveBuilding}
+            onMoveBuildings={handleMoveBuildings}
+            selectedBuildingIds={selectedBuildingIds}
+            setSelectedBuildingIds={setSelectedBuildingIds}
             onContextMenu={(e, building) => {
                 e.preventDefault();
                 setContextMenu({ x: e.clientX, y: e.clientY, building });

@@ -26,6 +26,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 interface SidebarProps {
+  isOpen: boolean;
   buildings: Building[];
   onAddBuilding: (building: Omit<Building, 'id'>) => void;
   onUpdateBuilding: (id: string, updates: Partial<Building>) => void;
@@ -35,7 +36,11 @@ interface SidebarProps {
   onReorderBuildings: (buildings: Building[]) => void;
 }
 
+type SortMode = 'manual' | 'name' | 'power';
+type SortDirection = 'asc' | 'desc';
+
 export const Sidebar: React.FC<SidebarProps> = ({
+  isOpen,
   buildings,
   onAddBuilding,
   onUpdateBuilding,
@@ -47,9 +52,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isAllianceOpen, setIsAllianceOpen] = useState(true);
   const [isCustomOpen, setIsCustomOpen] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>('manual');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const allianceBuildings = buildings.filter(b => b.isBase);
   const customBuildings = buildings.filter(b => !b.isBase);
+
+  const sortedCustomBuildings = [...customBuildings].sort((a, b) => {
+      if (sortMode === 'name') {
+          return sortDirection === 'asc'
+            ? a.name.localeCompare(b.name)
+            : b.name.localeCompare(a.name);
+      }
+      if (sortMode === 'power') {
+          return sortDirection === 'asc'
+            ? a.power - b.power
+            : b.power - a.power;
+      }
+      return 0; // Manual
+  });
+
+  const handleSortClick = (mode: SortMode) => {
+      if (sortMode === mode && mode !== 'manual') {
+          setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+      } else {
+          setSortMode(mode);
+          setSortDirection(mode === 'power' ? 'desc' : 'asc');
+      }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -72,8 +102,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-64 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 z-10">
-      <div className="flex-1 overflow-y-auto">
+    <aside className={cn(
+      "border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 z-10 transition-all duration-300 ease-in-out overflow-hidden",
+      isOpen ? "w-64" : "w-0 border-r-0"
+    )}>
+      <div className={cn("flex-1 overflow-y-auto min-w-64 transition-opacity duration-300", !isOpen && "opacity-0 pointer-events-none")}>
         {/* Alliance Buildings Section */}
         <div>
           <button
@@ -110,13 +143,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Custom Buildings Section */}
         <div>
-          <button
-            onClick={() => setIsCustomOpen(!isCustomOpen)}
-            className="w-full p-4 flex items-center justify-between hover:bg-slate-700 transition-colors border-y border-slate-700"
-          >
-            <span className="font-semibold uppercase text-xs tracking-wider text-slate-400">Custom Buildings</span>
-            {isCustomOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
+          <div className="flex items-center justify-between hover:bg-slate-700 border-y border-slate-700 group/header">
+            <button
+                onClick={() => setIsCustomOpen(!isCustomOpen)}
+                className="flex-1 p-4 flex items-center gap-2 transition-colors text-left"
+            >
+                {isCustomOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <span className="font-semibold uppercase text-xs tracking-wider text-slate-400">Custom Buildings</span>
+            </button>
+            {isCustomOpen && (
+                <div className="flex gap-1 pr-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
+                    <button
+                        onClick={() => handleSortClick('manual')}
+                        className={cn(
+                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors",
+                            sortMode === 'manual' ? "bg-blue-600 text-white" : "hover:bg-slate-600 text-slate-400"
+                        )}
+                        title="Manual Sort"
+                    >
+                        <GripVertical size={12} />
+                    </button>
+                    <button
+                        onClick={() => handleSortClick('name')}
+                        className={cn(
+                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors flex items-center gap-0.5",
+                            sortMode === 'name' ? "bg-blue-600 text-white" : "hover:bg-slate-600 text-slate-400"
+                        )}
+                        title={`Sort by Name (${sortDirection === 'asc' ? 'A-Z' : 'Z-A'})`}
+                    >
+                        AZ
+                        {sortMode === 'name' && (
+                            <span className="text-[8px]">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        )}
+                    </button>
+                    <button
+                        onClick={() => handleSortClick('power')}
+                        className={cn(
+                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors flex items-center gap-0.5",
+                            sortMode === 'power' ? "bg-blue-600 text-white" : "hover:bg-slate-600 text-slate-400"
+                        )}
+                        title={`Sort by Power (${sortDirection === 'asc' ? 'Low-High' : 'High-Low'})`}
+                    >
+                        PW
+                        {sortMode === 'power' && (
+                            <span className="text-[8px]">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        )}
+                    </button>
+                </div>
+            )}
+          </div>
           {isCustomOpen && (
             <div className="p-2 space-y-1">
               <DndContext
@@ -125,16 +200,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onDragEnd={handleDragEnd}
               >
                 <SortableContext
-                  items={customBuildings.map(b => b.id)}
+                  items={sortedCustomBuildings.map(b => b.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  {customBuildings.map(b => (
+                  {sortedCustomBuildings.map(b => (
                     <BuildingItem
                       key={b.id}
                       building={b}
                       isPlaced={placedBuildingIds.has(b.id)}
                       onDelete={() => onDeleteBuilding(b.id)}
                       setActiveDragItem={setActiveDragItem}
+                      isSortable={sortMode === 'manual'}
                     />
                   ))}
                 </SortableContext>
@@ -168,7 +244,8 @@ const BuildingItem: React.FC<{
   isPlaced: boolean;
   onDelete?: () => void;
   setActiveDragItem: (item: Building | null) => void;
-}> = ({ building, isPlaced, onDelete, setActiveDragItem }) => {
+  isSortable?: boolean;
+}> = ({ building, isPlaced, onDelete, setActiveDragItem, isSortable = true }) => {
   const {
     attributes,
     listeners,
@@ -176,7 +253,7 @@ const BuildingItem: React.FC<{
     transform,
     transition,
     isDragging
-  } = useSortable({ id: building.id });
+  } = useSortable({ id: building.id, disabled: !isSortable });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -214,13 +291,15 @@ const BuildingItem: React.FC<{
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 overflow-hidden">
-            <button
-                {...attributes}
-                {...listeners}
-                className="cursor-grab active:cursor-grabbing p-0.5 hover:bg-slate-600 rounded text-slate-500"
-            >
-                <GripVertical size={14} />
-            </button>
+            {isSortable && (
+                <button
+                    {...attributes}
+                    {...listeners}
+                    className="cursor-grab active:cursor-grabbing p-0.5 hover:bg-slate-600 rounded text-slate-500"
+                >
+                    <GripVertical size={14} />
+                </button>
+            )}
             <span className="font-medium text-sm truncate">{building.name}</span>
         </div>
         {onDelete && (
