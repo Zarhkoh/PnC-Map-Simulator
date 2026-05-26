@@ -11,11 +11,13 @@ interface MapProps {
   placedBuildings: PlacedBuilding[];
   allBuildings: Building[];
   onPlaceBuilding: (building: PlacedBuilding) => void;
-  onMoveBuilding: (id: string, x: number, y: number) => void;
+  onMoveBuildings: (ids: string[], dx: number, dy: number) => void;
+  selectedBuildingIds: Set<string>;
+  setSelectedBuildingIds: (ids: Set<string>) => void;
   onContextMenu: (e: React.MouseEvent, building: PlacedBuilding) => void;
   activeDragItem: Building | PlacedBuilding | null;
   setActiveDragItem: (item: Building | PlacedBuilding | null) => void;
-  isOccupied: (x: number, y: number, width: number, height: number, excludeId?: string) => boolean;
+  isOccupied: (x: number, y: number, width: number, height: number, excludeId?: string | string[]) => boolean;
 }
 
 const TILE_WIDTH = 64;
@@ -26,7 +28,9 @@ export const Map: React.FC<MapProps> = ({
     placedBuildings,
     allBuildings,
     onPlaceBuilding,
-    onMoveBuilding,
+    onMoveBuildings,
+    selectedBuildingIds,
+    setSelectedBuildingIds,
     onContextMenu,
     activeDragItem,
     setActiveDragItem,
@@ -37,6 +41,10 @@ export const Map: React.FC<MapProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingMap = useRef(false);
   const isMovingBuilding = useRef(false);
+  const isSelecting = useRef(false);
+  const selectionStart = useRef<Point | null>(null);
+  const [selectionRect, setSelectionRect] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
+
   const lastMousePos = useRef<Point>({ x: 0, y: 0 });
   const dragOffset = useRef<{ i: number, j: number }>({ i: 0, j: 0 });
 
@@ -90,6 +98,18 @@ export const Map: React.FC<MapProps> = ({
         isDraggingMap.current = true;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
         (e.target as Element).setPointerCapture(e.pointerId);
+    } else if (e.button === 0) {
+        // Left click on grid background
+        isSelecting.current = true;
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect) {
+            selectionStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+
+        if (!e.shiftKey) {
+            setSelectedBuildingIds(new Set());
+        }
     }
   };
 
@@ -147,8 +167,10 @@ export const Map: React.FC<MapProps> = ({
 
     if (isExisting) {
         const b = activeDragItem as PlacedBuilding;
-        if (!isOccupied(finalI, finalJ, b.width, b.height, b.id)) {
-            onMoveBuilding(b.id, finalI, finalJ);
+        const dx = finalI - b.x;
+        const dy = finalJ - b.y;
+        if (dx !== 0 || dy !== 0) {
+            onMoveBuildings([b.id], dx, dy);
         }
     } else {
         const b = activeDragItem as Building;
@@ -165,6 +187,21 @@ export const Map: React.FC<MapProps> = ({
   const onPointerDownBuilding = (e: React.PointerEvent, b: PlacedBuilding) => {
     if (e.button !== 0) return; // Only left click
     e.stopPropagation();
+
+    if (e.shiftKey) {
+        const newSelected = new Set(selectedBuildingIds);
+        if (newSelected.has(b.id)) {
+            newSelected.delete(b.id);
+        } else {
+            newSelected.add(b.id);
+        }
+        setSelectedBuildingIds(newSelected);
+        return;
+    }
+
+    if (!selectedBuildingIds.has(b.id)) {
+        setSelectedBuildingIds(new Set([b.id]));
+    }
 
     isMovingBuilding.current = true;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -229,6 +266,42 @@ export const Map: React.FC<MapProps> = ({
         const finalJ = Math.round(j - dragOffset.current.j);
 
         setDragPreviewPos({ x: finalI, y: finalJ });
+      } else if (isSelecting.current && selectionStart.current) {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect) {
+            const currentX = e.clientX - rect.left;
+            const currentY = e.clientY - rect.top;
+            const x = Math.min(selectionStart.current.x, currentX);
+            const y = Math.min(selectionStart.current.y, currentY);
+            const w = Math.abs(selectionStart.current.x - currentX);
+            const h = Math.abs(selectionStart.current.y - currentY);
+            setSelectionRect({ x, y, w, h });
+
+            // Real-time selection update
+            const newSelected = new Set(e.shiftKey ? selectedBuildingIds : []);
+            placedBuildings.forEach(b => {
+                const pW = gridToScreen(b.x, b.y);
+                const pE = gridToScreen(b.x + b.width, b.y + b.height);
+
+                // Screen coordinates of building (bounding box is enough for rectangle intersection)
+                const bLeft = (pW.x * zoom) + offset.x;
+                const bTop = (pW.y * zoom) + offset.y;
+                const bRight = (pE.x * zoom) + offset.x;
+                const bBottom = (pE.y * zoom) + offset.y;
+
+                // Adjust building screen coords to container local coords
+                const localBLeft = bLeft - rect.left;
+                const localBTop = bTop - rect.top;
+                const localBRight = bRight - rect.left;
+                const localBBottom = bBottom - rect.top;
+
+                // Intersection check
+                if (!(x + w < localBLeft || x > localBRight || y + h < localBTop || y > localBBottom)) {
+                    newSelected.add(b.id);
+                }
+            });
+            setSelectedBuildingIds(newSelected);
+        }
       }
     };
 
@@ -238,13 +311,19 @@ export const Map: React.FC<MapProps> = ({
       } else if (e.button === 0 && isMovingBuilding.current && activeDragItem && 'x' in activeDragItem) {
           if (dragPreviewPos) {
               const b = activeDragItem as PlacedBuilding;
-              if (!isOccupied(dragPreviewPos.x, dragPreviewPos.y, b.width, b.height, b.id)) {
-                  onMoveBuilding(b.id, dragPreviewPos.x, dragPreviewPos.y);
+              const dx = dragPreviewPos.x - b.x;
+              const dy = dragPreviewPos.y - b.y;
+              if (dx !== 0 || dy !== 0) {
+                  onMoveBuildings(Array.from(selectedBuildingIds), dx, dy);
               }
           }
           isMovingBuilding.current = false;
           setActiveDragItem(null);
           setDragPreviewPos(null);
+      } else if (e.button === 0 && isSelecting.current) {
+          isSelecting.current = false;
+          selectionStart.current = null;
+          setSelectionRect(null);
       }
     };
 
@@ -254,15 +333,84 @@ export const Map: React.FC<MapProps> = ({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [activeDragItem, dragPreviewPos, offset, zoom, gridSize, isOccupied, onMoveBuilding, setActiveDragItem]);
+  }, [activeDragItem, dragPreviewPos, offset, zoom, gridSize, isOccupied, onMoveBuildings, setActiveDragItem, selectedBuildingIds, setSelectedBuildingIds, placedBuildings]);
 
   const west = gridToScreen(0, 0);
   const north = gridToScreen(gridSize, 0);
   const south = gridToScreen(0, gridSize);
   const east = gridToScreen(gridSize, gridSize);
 
+  const getAllianceTiles = () => {
+    const tiles = new Set<string>();
+    placedBuildings.forEach(b => {
+        let radius = 0;
+        if (b.id === 'alliance-fortress') radius = 6;
+        else if (b.id.startsWith('outpost-')) radius = 4;
+
+        if (radius > 0) {
+            for (let i = b.x - radius; i < b.x + b.width + radius; i++) {
+                for (let j = b.y - radius; j < b.y + b.height + radius; j++) {
+                    if (i >= 0 && i < gridSize && j >= 0 && j < gridSize) {
+                        tiles.add(`${i},${j}`);
+                    }
+                }
+            }
+        }
+    });
+    return tiles;
+  };
+
+  const allianceTiles = getAllianceTiles();
+
+  const renderAllianceZone = () => {
+    if (allianceTiles.size === 0) return null;
+
+    const tilesArray = Array.from(allianceTiles).map(s => s.split(',').map(Number));
+
+    // Borders calculation (stepped)
+    const borders: {x1: number, y1: number, x2: number, y2: number}[] = [];
+    tilesArray.forEach(([i, j]) => {
+        // Check 4 neighbors
+        [[i-1, j], [i+1, j], [i, j-1], [i, j+1]].forEach(([ni, nj], index) => {
+            if (!allianceTiles.has(`${ni},${nj}`)) {
+                const p1 = gridToScreen(
+                    index === 0 ? i : (index === 1 ? i + 1 : (index === 2 ? i : i)),
+                    index === 0 ? j : (index === 1 ? j : (index === 2 ? j : j + 1))
+                );
+                const p2 = gridToScreen(
+                    index === 0 ? i : (index === 1 ? i + 1 : (index === 2 ? i + 1 : i + 1)),
+                    index === 0 ? j + 1 : (index === 1 ? j + 1 : (index === 2 ? j : j + 1))
+                );
+                borders.push({x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y});
+            }
+        });
+    });
+
+    return (
+        <g pointerEvents="none">
+            {tilesArray.map(([i, j]) => {
+                const pW = gridToScreen(i, j);
+                const pN = gridToScreen(i + 1, j);
+                const pS = gridToScreen(i, j + 1);
+                const pE = gridToScreen(i + 1, j + 1);
+                return (
+                    <polygon
+                        key={`${i},${j}`}
+                        points={`${pW.x},${pW.y} ${pN.x},${pN.y} ${pE.x},${pE.y} ${pS.x},${pS.y}`}
+                        fill="rgba(34, 197, 94, 0.15)"
+                    />
+                );
+            })}
+            {borders.map((b, i) => (
+                <line key={i} x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2} stroke="#22c55e" strokeWidth="2" strokeLinecap="round" />
+            ))}
+        </g>
+    );
+  };
+
   const renderBuilding = (b: PlacedBuilding | (Building & { x: number, y: number }), isGhost = false) => {
     const isCurrentlyBeingDragged = activeDragItem && activeDragItem.id === b.id;
+    const isSelected = !isGhost && selectedBuildingIds.has(b.id);
     const isHovered = !isGhost && hoveredBuildingId === b.id;
 
     // When moving an existing building, we want to show it as a ghost at the new position
@@ -292,14 +440,16 @@ export const Map: React.FC<MapProps> = ({
           onPointerDown={(e) => {
             if (!isGhost) onPointerDownBuilding(e, b as PlacedBuilding);
           }}
-          fill={isGhost ? (isValid ? b.color : '#ef4444') : (isHovered ? '#f8fafc' : b.color)}
+          fill={isGhost ? (isValid ? b.color : '#ef4444') : b.color}
           fillOpacity={isGhost ? 0.6 : 1}
-          stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : (isHovered ? "#ffffff" : "rgba(255,255,255,0.4)")}
-          strokeWidth={isGhost || isHovered ? 4 : 1}
-          style={(isGhost || isHovered) ? {
+          stroke={isGhost ? (isValid ? "#60a5fa" : "#f87171") : (isSelected ? "#3b82f6" : (isHovered ? "#ffffff" : "rgba(255,255,255,0.4)"))}
+          strokeWidth={isGhost || isSelected || isHovered ? 4 : 1}
+          style={(isGhost || isSelected || isHovered) ? {
             filter: isGhost
               ? `drop-shadow(0 0 10px ${isValid ? '#3b82f6' : '#ef4444'})`
-              : `drop-shadow(0 0 20px rgba(255,255,255,0.9))`
+              : (isSelected
+                  ? `drop-shadow(0 0 15px rgba(59, 130, 246, 0.8))`
+                  : `drop-shadow(0 0 20px rgba(255,255,255,0.9))`)
           } : {}}
           className={isGhost ? "" : "transition-all duration-150"}
         />
@@ -368,8 +518,17 @@ export const Map: React.FC<MapProps> = ({
                 </React.Fragment>
             ))}
 
+            {renderAllianceZone()}
+
             {placedBuildings.map(b => renderBuilding(b))}
-            {activeDragItem && dragPreviewPos && renderBuilding({ ...activeDragItem, x: dragPreviewPos.x, y: dragPreviewPos.y }, true)}
+            {activeDragItem && dragPreviewPos && 'x' in activeDragItem && Array.from(selectedBuildingIds).map(id => {
+                const b = placedBuildings.find(pb => pb.id === id);
+                if (!b) return null;
+                const dx = dragPreviewPos.x - (activeDragItem as PlacedBuilding).x;
+                const dy = dragPreviewPos.y - (activeDragItem as PlacedBuilding).y;
+                return renderBuilding({ ...b, x: b.x + dx, y: b.y + dy }, true);
+            })}
+            {activeDragItem && dragPreviewPos && !('x' in activeDragItem) && renderBuilding({ ...activeDragItem, x: dragPreviewPos.x, y: dragPreviewPos.y }, true)}
 
             <text x={west.x - 30} y={west.y} fill="white" fontSize="48" textAnchor="end" alignmentBaseline="middle" className="font-bold opacity-30 select-none pointer-events-none">WEST</text>
             <text x={east.x + 30} y={east.y} fill="white" fontSize="48" textAnchor="start" alignmentBaseline="middle" className="font-bold opacity-30 select-none pointer-events-none">EAST</text>
@@ -378,6 +537,17 @@ export const Map: React.FC<MapProps> = ({
           </g>
         </svg>
       </div>
+      {selectionRect && (
+        <div
+            className="absolute border border-blue-400 bg-blue-500/20 pointer-events-none"
+            style={{
+                left: selectionRect.x,
+                top: selectionRect.y,
+                width: selectionRect.w,
+                height: selectionRect.h
+            }}
+        />
+      )}
     </div>
   );
 };
