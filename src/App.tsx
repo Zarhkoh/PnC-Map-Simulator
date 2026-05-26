@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Map } from './components/Map'
 import { Sidebar } from './components/Sidebar'
 import { Building, INITIAL_BUILDINGS, PlacedBuilding } from './types'
 import { X, Download, Upload, Settings, PanelLeftOpen, PanelLeftClose } from 'lucide-react'
+import { getAllianceTiles, isBuildingInAllianceZone } from './utils/alliance'
 
 function App() {
   const [gridSize, setGridSize] = useState(50)
@@ -10,11 +11,26 @@ function App() {
   const [buildings, setBuildings] = useState<Building[]>(INITIAL_BUILDINGS)
   const [placedBuildings, setPlacedBuildings] = useState<PlacedBuilding[]>([])
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<Set<string>>(new Set())
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, building: PlacedBuilding } | null>(null)
-  const [editingBuilding, setEditingBuilding] = useState<PlacedBuilding | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, building: Building | PlacedBuilding } | null>(null)
+  const [editingBuilding, setEditingBuilding] = useState<Building | PlacedBuilding | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [activeDragItem, setActiveDragItem] = useState<Building | PlacedBuilding | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBuildingIds.size > 0) {
+        // Don't delete if we're typing in an input
+        if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+        setPlacedBuildings(prev => prev.filter(b => !selectedBuildingIds.has(b.id)));
+        setSelectedBuildingIds(new Set());
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedBuildingIds]);
 
   const handleAddBuilding = (building: Omit<Building, 'id'>) => {
     const newBuilding: Building = {
@@ -34,42 +50,9 @@ function App() {
     setPlacedBuildings(prev => prev.filter(b => b.id !== id))
   }
 
-  const handlePlaceBuilding = (building: PlacedBuilding) => {
-    setPlacedBuildings(prev => [...prev, building])
-  }
-
-  const handleReorderBuildings = (newBuildings: Building[]) => {
-    setBuildings(newBuildings);
-  }
-
-  const handleMoveBuildings = (ids: string[], dx: number, dy: number) => {
-    const toMove = placedBuildings.filter(b => ids.includes(b.id));
-    const canMove = toMove.every(b => !isOccupied(b.x + dx, b.y + dy, b.width, b.height, ids));
-
-    if (canMove) {
-      setPlacedBuildings(prev => prev.map(b =>
-        ids.includes(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b
-      ));
-    }
-  }
-
-  const handleDuplicate = (b: PlacedBuilding) => {
-    const newBuilding: PlacedBuilding = {
-      ...b,
-      id: `custom-${crypto.randomUUID()}`,
-      x: b.x + 1,
-      y: b.y + 1,
-    }
-    if (!isOccupied(newBuilding.x, newBuilding.y, newBuilding.width, newBuilding.height)) {
-        setPlacedBuildings(prev => [...prev, newBuilding]);
-    }
-    setContextMenu(null);
-  }
-
-  const isOccupied = (x: number, y: number, width: number, height: number, excludeId?: string | string[]) => {
+  const checkOccupancy = (x: number, y: number, width: number, height: number, buildings: PlacedBuilding[], excludeIds: string[]) => {
     if (x < 0 || y < 0 || x + width > gridSize || y + height > gridSize) return true;
-    const excludeIds = Array.isArray(excludeId) ? excludeId : (excludeId ? [excludeId] : []);
-    return placedBuildings.some(b => {
+    return buildings.some(b => {
       if (excludeIds.includes(b.id)) return false;
       return (
         x < b.x + b.width &&
@@ -78,6 +61,90 @@ function App() {
         y + height > b.y
       );
     });
+  };
+
+  const validatePlacement = (building: PlacedBuilding, allPlaced: PlacedBuilding[], excludeIdsForOccupancy: string[]) => {
+    // Occupancy check
+    if (checkOccupancy(building.x, building.y, building.width, building.height, allPlaced, excludeIdsForOccupancy)) {
+      return false;
+    }
+
+    // Alliance zone constraint
+    if (building.isBase && building.id !== 'alliance-fortress') {
+      // Re-calculate alliance zone excluding the current building to avoid self-validation
+      const allianceTiles = getAllianceTiles(allPlaced, gridSize, null, null, undefined, [building.id]);
+      if (!isBuildingInAllianceZone(building, allianceTiles)) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  const handlePlaceBuilding = (building: PlacedBuilding) => {
+    // When placing, we check it against current placed buildings
+    if (validatePlacement(building, [...placedBuildings, building], [building.id])) {
+      setPlacedBuildings(prev => [...prev, building])
+    }
+  }
+
+  const handleReorderBuildings = (newBuildings: Building[]) => {
+    setBuildings(newBuildings);
+  }
+
+  const handleMoveBuildings = (ids: string[], dx: number, dy: number) => {
+    // We check each moved building and each staying base building against the resulting state
+    const futurePlaced = placedBuildings.map(b =>
+      ids.includes(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b
+    );
+
+    const allValid = futurePlaced.every(b => {
+      if (ids.includes(b.id)) {
+          // Moved buildings must satisfy both occupancy and alliance zone (if base)
+          return validatePlacement(b, futurePlaced, ids);
+      } else if (b.isBase && b.id !== 'alliance-fortress') {
+          // Staying base buildings must still be in a valid zone
+          const allianceTiles = getAllianceTiles(futurePlaced, gridSize, null, null, undefined, [b.id]);
+          return isBuildingInAllianceZone(b, allianceTiles);
+      }
+      return true;
+    });
+
+    if (allValid) {
+      setPlacedBuildings(futurePlaced);
+    }
+  }
+
+  const handleDuplicate = (b: PlacedBuilding) => {
+    let newX = b.x + 1;
+    let newY = b.y + 1;
+
+    // Try to find a free spot nearby if the first one is occupied
+    let attempts = 0;
+    while (checkOccupancy(newX, newY, b.width, b.height, placedBuildings, []) && attempts < 10) {
+      newX += 1;
+      newY += 1;
+      attempts++;
+    }
+
+    const newBuilding: PlacedBuilding = {
+      ...b,
+      id: `custom-${crypto.randomUUID()}`,
+      x: newX,
+      y: newY,
+    }
+
+    // For custom buildings (non-base), they don't have alliance zone constraints,
+    // so we just need them to be within bounds and not overlapping (if possible).
+    // If they overlap after attempts, we still place them so user can move them.
+    setPlacedBuildings(prev => [...prev, newBuilding]);
+    setSelectedBuildingIds(new Set([newBuilding.id]));
+    setContextMenu(null);
+  }
+
+  const isOccupied = (x: number, y: number, width: number, height: number, excludeId?: string | string[]) => {
+    const excludeIds = Array.isArray(excludeId) ? excludeId : (excludeId ? [excludeId] : []);
+    return checkOccupancy(x, y, width, height, placedBuildings, excludeIds);
   };
 
   const exportData = () => {
@@ -166,6 +233,11 @@ function App() {
           placedBuildingIds={placedBuildingIds}
           setActiveDragItem={setActiveDragItem}
           onReorderBuildings={handleReorderBuildings}
+          onContextMenu={(e, building) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setContextMenu({ x: e.clientX, y: e.clientY, building });
+          }}
         />
         <div className="flex-1 relative bg-slate-950">
            <Map
@@ -204,18 +276,24 @@ function App() {
                 >
                     Modify
                 </button>
-                <button
-                    className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm"
-                    onClick={() => handleDuplicate(contextMenu.building)}
-                >
-                    Duplicate
-                </button>
+                {'x' in contextMenu.building && (
+                  <button
+                      className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm"
+                      onClick={() => handleDuplicate(contextMenu.building as PlacedBuilding)}
+                  >
+                      Duplicate
+                  </button>
+                )}
               </>
             )}
             <button
                 className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm text-red-400 border-t border-slate-700 mt-1"
                 onClick={() => {
-                    setPlacedBuildings(prev => prev.filter(pb => pb.id !== contextMenu.building.id));
+                    if ('x' in contextMenu.building) {
+                        setPlacedBuildings(prev => prev.filter(pb => pb.id !== contextMenu.building.id));
+                    } else if (!contextMenu.building.isBase) {
+                        handleDeleteBuilding(contextMenu.building.id);
+                    }
                     setContextMenu(null);
                 }}
             >
@@ -291,7 +369,7 @@ const SettingsModal: React.FC<{
 };
 
 const EditBuildingForm: React.FC<{
-    building: PlacedBuilding;
+    building: Building | PlacedBuilding;
     onClose: () => void;
     onSubmit: (data: Partial<Building>) => void
   }> = ({ building, onClose, onSubmit }) => {

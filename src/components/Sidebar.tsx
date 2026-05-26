@@ -34,6 +34,7 @@ interface SidebarProps {
   placedBuildingIds: Set<string>;
   setActiveDragItem: (item: Building | null) => void;
   onReorderBuildings: (buildings: Building[]) => void;
+  onContextMenu: (e: React.MouseEvent, building: Building) => void;
 }
 
 type SortMode = 'manual' | 'name' | 'power';
@@ -47,7 +48,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteBuilding,
   placedBuildingIds,
   setActiveDragItem,
-  onReorderBuildings
+  onReorderBuildings,
+  onContextMenu
 }) => {
   const [isAllianceOpen, setIsAllianceOpen] = useState(true);
   const [isCustomOpen, setIsCustomOpen] = useState(true);
@@ -133,6 +135,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       building={b}
                       isPlaced={placedBuildingIds.has(b.id)}
                       setActiveDragItem={setActiveDragItem}
+                      onContextMenu={onContextMenu}
                     />
                   ))}
                 </SortableContext>
@@ -211,6 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onDelete={() => onDeleteBuilding(b.id)}
                       setActiveDragItem={setActiveDragItem}
                       isSortable={sortMode === 'manual'}
+                      onContextMenu={onContextMenu}
                     />
                   ))}
                 </SortableContext>
@@ -245,7 +249,8 @@ const BuildingItem: React.FC<{
   onDelete?: () => void;
   setActiveDragItem: (item: Building | null) => void;
   isSortable?: boolean;
-}> = ({ building, isPlaced, onDelete, setActiveDragItem, isSortable = true }) => {
+  onContextMenu: (e: React.MouseEvent, building: Building) => void;
+}> = ({ building, isPlaced, onDelete, setActiveDragItem, isSortable = true, onContextMenu }) => {
   const {
     attributes,
     listeners,
@@ -288,6 +293,7 @@ const BuildingItem: React.FC<{
         }, 0);
       }}
       onDragEnd={() => setActiveDragItem(null)}
+      onContextMenu={(e) => onContextMenu(e, building)}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 overflow-hidden">
