@@ -172,7 +172,21 @@ function App() {
             if (data.gridSize) setGridSize(data.gridSize);
             const customBuildings = data.keeps || data.buildings || [];
             setBuildings([...INITIAL_BUILDINGS, ...customBuildings]);
-            if (data.placedBuildings) setPlacedBuildings(data.placedBuildings);
+            if (data.placedBuildings) {
+                const enrichedPlaced = (data.placedBuildings as PlacedBuilding[]).map(pb => {
+                    const initial = INITIAL_BUILDINGS.find(b => b.id === pb.id);
+                    if (initial) {
+                        return { ...initial, ...pb };
+                    }
+                    // For custom buildings, find them in imported customBuildings
+                    const custom = customBuildings.find((b: Building) => b.id === pb.id);
+                    if (custom) {
+                        return { ...custom, ...pb };
+                    }
+                    return pb;
+                });
+                setPlacedBuildings(enrichedPlaced);
+            }
         } catch (err) {
             alert('Invalid JSON file');
         }
