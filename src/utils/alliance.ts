@@ -51,12 +51,13 @@ export const isBuildingInAllianceZone = (
   building: { x: number, y: number, width: number, height: number },
   allianceTiles: Set<string>
 ): boolean => {
+  if (allianceTiles.size === 0) return false;
   for (let i = building.x; i < building.x + building.width; i++) {
     for (let j = building.y; j < building.y + building.height; j++) {
-      if (allianceTiles.has(`${i},${j}`)) {
-        return true;
+      if (!allianceTiles.has(`${i},${j}`)) {
+        return false;
       }
     }
   }
-  return false;
+  return true;
 };
