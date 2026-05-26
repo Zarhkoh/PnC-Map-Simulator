@@ -37,6 +37,7 @@ interface SidebarProps {
 }
 
 type SortMode = 'manual' | 'name' | 'power';
+type SortDirection = 'asc' | 'desc';
 
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
@@ -52,15 +53,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isCustomOpen, setIsCustomOpen] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('manual');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const allianceBuildings = buildings.filter(b => b.isBase);
   const customBuildings = buildings.filter(b => !b.isBase);
 
   const sortedCustomBuildings = [...customBuildings].sort((a, b) => {
-      if (sortMode === 'name') return a.name.localeCompare(b.name);
-      if (sortMode === 'power') return b.power - a.power;
+      if (sortMode === 'name') {
+          return sortDirection === 'asc'
+            ? a.name.localeCompare(b.name)
+            : b.name.localeCompare(a.name);
+      }
+      if (sortMode === 'power') {
+          return sortDirection === 'asc'
+            ? a.power - b.power
+            : b.power - a.power;
+      }
       return 0; // Manual
   });
+
+  const handleSortClick = (mode: SortMode) => {
+      if (sortMode === mode && mode !== 'manual') {
+          setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+      } else {
+          setSortMode(mode);
+          setSortDirection(mode === 'power' ? 'desc' : 'asc');
+      }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -135,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {isCustomOpen && (
                 <div className="flex gap-1 pr-2 opacity-0 group-hover/header:opacity-100 transition-opacity">
                     <button
-                        onClick={() => setSortMode('manual')}
+                        onClick={() => handleSortClick('manual')}
                         className={cn(
                             "p-1.5 rounded text-[10px] uppercase font-bold transition-colors",
                             sortMode === 'manual' ? "bg-blue-600 text-white" : "hover:bg-slate-600 text-slate-400"
@@ -145,24 +164,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <GripVertical size={12} />
                     </button>
                     <button
-                        onClick={() => setSortMode('name')}
+                        onClick={() => handleSortClick('name')}
                         className={cn(
-                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors",
+                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors flex items-center gap-0.5",
                             sortMode === 'name' ? "bg-blue-600 text-white" : "hover:bg-slate-600 text-slate-400"
                         )}
-                        title="Sort by Name"
+                        title={`Sort by Name (${sortDirection === 'asc' ? 'A-Z' : 'Z-A'})`}
                     >
                         AZ
+                        {sortMode === 'name' && (
+                            <span className="text-[8px]">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        )}
                     </button>
                     <button
-                        onClick={() => setSortMode('power')}
+                        onClick={() => handleSortClick('power')}
                         className={cn(
-                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors",
+                            "p-1.5 rounded text-[10px] uppercase font-bold transition-colors flex items-center gap-0.5",
                             sortMode === 'power' ? "bg-blue-600 text-white" : "hover:bg-slate-600 text-slate-400"
                         )}
-                        title="Sort by Power"
+                        title={`Sort by Power (${sortDirection === 'asc' ? 'Low-High' : 'High-Low'})`}
                     >
                         PW
+                        {sortMode === 'power' && (
+                            <span className="text-[8px]">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                        )}
                     </button>
                 </div>
             )}
