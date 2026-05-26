@@ -669,7 +669,6 @@ test('alliance zone appears after importing JSON', async ({ page }) => {
   const count = await alliancePolygons.count();
   console.log('Alliance polygons count:', count);
 
-  // IT SHOULD FAIL HERE currently because allianceRadius is missing from imported buildings
   expect(count).toBeGreaterThan(0);
 
   // Clean up

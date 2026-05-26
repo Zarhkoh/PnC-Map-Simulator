@@ -373,25 +373,34 @@ export const Map: React.FC<MapProps> = ({
   const south = gridToScreen(0, gridSize);
   const east = gridToScreen(gridSize, gridSize);
 
-  const allianceTiles = getAllianceTiles(
+  const permanentAllianceTiles = getAllianceTiles(
     placedBuildings,
+    gridSize,
+    null,
+    null,
+    undefined,
+    activeDragItem && 'x' in activeDragItem ? Array.from(selectedBuildingIds) : []
+  );
+
+  const previewAllianceTiles = (activeDragItem && dragPreviewPos) ? getAllianceTiles(
+    activeDragItem && 'x' in activeDragItem ? placedBuildings.filter(b => selectedBuildingIds.has(b.id)) : [],
     gridSize,
     activeDragItem,
     dragPreviewPos,
     selectedBuildingIds
-  );
+  ) : new Set<string>();
 
-  const renderAllianceZone = () => {
-    if (allianceTiles.size === 0) return null;
+  const renderAllianceZone = (tiles: Set<string>, fillColor: string, strokeColor: string) => {
+    if (tiles.size === 0) return null;
 
-    const tilesArray = Array.from(allianceTiles).map(s => s.split(',').map(Number));
+    const tilesArray = Array.from(tiles).map(s => s.split(',').map(Number));
 
     // Borders calculation (stepped)
     const borders: {x1: number, y1: number, x2: number, y2: number}[] = [];
     tilesArray.forEach(([i, j]) => {
         // Check 4 neighbors
         [[i-1, j], [i+1, j], [i, j-1], [i, j+1]].forEach(([ni, nj], index) => {
-            if (!allianceTiles.has(`${ni},${nj}`)) {
+            if (!tiles.has(`${ni},${nj}`)) {
                 const p1 = gridToScreen(
                     index === 0 ? i : (index === 1 ? i + 1 : (index === 2 ? i : i)),
                     index === 0 ? j : (index === 1 ? j : (index === 2 ? j : j + 1))
@@ -416,12 +425,12 @@ export const Map: React.FC<MapProps> = ({
                     <polygon
                         key={`${i},${j}`}
                         points={`${pW.x},${pW.y} ${pN.x},${pN.y} ${pE.x},${pE.y} ${pS.x},${pS.y}`}
-                        fill="rgba(34, 197, 94, 0.15)"
+                        fill={fillColor}
                     />
                 );
             })}
             {borders.map((b, i) => (
-                <line key={i} x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2} stroke="#22c55e" strokeWidth="2" strokeLinecap="round" />
+                <line key={i} x1={b.x1} y1={b.y1} x2={b.x2} y2={b.y2} stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
             ))}
         </g>
     );
@@ -560,7 +569,8 @@ export const Map: React.FC<MapProps> = ({
                 </React.Fragment>
             ))}
 
-            {renderAllianceZone()}
+            {renderAllianceZone(permanentAllianceTiles, "rgba(34, 197, 94, 0.15)", "#22c55e")}
+            {renderAllianceZone(previewAllianceTiles, "rgba(134, 239, 172, 0.25)", "#86efac")}
 
             {placedBuildings.map(b => renderBuilding(b))}
             {activeDragItem && dragPreviewPos && 'x' in activeDragItem && Array.from(selectedBuildingIds).map(id => {
