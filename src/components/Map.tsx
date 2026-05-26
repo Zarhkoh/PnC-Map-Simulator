@@ -51,6 +51,37 @@ export const Map: React.FC<MapProps> = ({
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number, y: number } | null>(null);
   const [hoveredBuildingId, setHoveredBuildingId] = useState<string | null>(null);
 
+  // Sync state to ref for stable event listeners
+  const stateRef = useRef({
+    activeDragItem,
+    dragPreviewPos,
+    offset,
+    zoom,
+    gridSize,
+    isOccupied,
+    onMoveBuildings,
+    setActiveDragItem,
+    selectedBuildingIds,
+    setSelectedBuildingIds,
+    placedBuildings,
+  });
+
+  useEffect(() => {
+    stateRef.current = {
+      activeDragItem,
+      dragPreviewPos,
+      offset,
+      zoom,
+      gridSize,
+      isOccupied,
+      onMoveBuildings,
+      setActiveDragItem,
+      selectedBuildingIds,
+      setSelectedBuildingIds,
+      placedBuildings,
+    };
+  });
+
   const gridToScreen = (i: number, j: number) => {
     return {
       x: (i + j) * (TILE_WIDTH / 2),
@@ -250,6 +281,8 @@ export const Map: React.FC<MapProps> = ({
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
+      const { activeDragItem, offset, zoom, selectedBuildingIds, placedBuildings, setSelectedBuildingIds } = stateRef.current;
+
       if (isDraggingMap.current) {
         const dx = e.clientX - lastMousePos.current.x;
         const dy = e.clientY - lastMousePos.current.y;
@@ -282,12 +315,14 @@ export const Map: React.FC<MapProps> = ({
             placedBuildings.forEach(b => {
                 const pW = gridToScreen(b.x, b.y);
                 const pE = gridToScreen(b.x + b.width, b.y + b.height);
+                const pN = gridToScreen(b.x + b.width, b.y);
+                const pS = gridToScreen(b.x, b.y + b.height);
 
                 // Screen coordinates of building (bounding box is enough for rectangle intersection)
                 const bLeft = (pW.x * zoom) + offset.x;
-                const bTop = (pW.y * zoom) + offset.y;
+                const bTop = (pN.y * zoom) + offset.y;
                 const bRight = (pE.x * zoom) + offset.x;
-                const bBottom = (pE.y * zoom) + offset.y;
+                const bBottom = (pS.y * zoom) + offset.y;
 
                 // Adjust building screen coords to container local coords
                 const localBLeft = bLeft - rect.left;
@@ -306,6 +341,8 @@ export const Map: React.FC<MapProps> = ({
     };
 
     const handlePointerUp = (e: PointerEvent) => {
+      const { activeDragItem, dragPreviewPos, onMoveBuildings, selectedBuildingIds, setActiveDragItem } = stateRef.current;
+
       if (e.button === 1) {
           isDraggingMap.current = false;
       } else if (e.button === 0 && isMovingBuilding.current && activeDragItem && 'x' in activeDragItem) {
@@ -333,7 +370,7 @@ export const Map: React.FC<MapProps> = ({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [activeDragItem, dragPreviewPos, offset, zoom, gridSize, isOccupied, onMoveBuildings, setActiveDragItem, selectedBuildingIds, setSelectedBuildingIds, placedBuildings]);
+  }, []);
 
   const west = gridToScreen(0, 0);
   const north = gridToScreen(gridSize, 0);
@@ -342,7 +379,9 @@ export const Map: React.FC<MapProps> = ({
 
   const getAllianceTiles = () => {
     const tiles = new Set<string>();
-    placedBuildings.forEach(b => {
+
+    // Helper to add tiles for a building at a specific position
+    const addTiles = (b: { id: string, x: number, y: number, width: number, height: number }) => {
         let radius = 0;
         if (b.id === 'alliance-fortress') radius = 6;
         else if (b.id.startsWith('outpost-')) radius = 4;
@@ -356,7 +395,30 @@ export const Map: React.FC<MapProps> = ({
                 }
             }
         }
+    };
+
+    // Calculate offset if dragging existing buildings
+    let dx = 0, dy = 0;
+    const isDraggingExisting = activeDragItem && dragPreviewPos && 'x' in activeDragItem;
+    if (isDraggingExisting) {
+        dx = dragPreviewPos!.x - (activeDragItem as PlacedBuilding).x;
+        dy = dragPreviewPos!.y - (activeDragItem as PlacedBuilding).y;
+    }
+
+    placedBuildings.forEach(b => {
+        if (isDraggingExisting && selectedBuildingIds.has(b.id)) {
+            // Use preview position for buildings being moved
+            addTiles({ ...b, x: b.x + dx, y: b.y + dy });
+        } else {
+            addTiles(b);
+        }
     });
+
+    // Also include new building being dragged from sidebar
+    if (activeDragItem && dragPreviewPos && !('x' in activeDragItem)) {
+        addTiles({ ...activeDragItem, x: dragPreviewPos.x, y: dragPreviewPos.y });
+    }
+
     return tiles;
   };
 
@@ -409,7 +471,10 @@ export const Map: React.FC<MapProps> = ({
   };
 
   const renderBuilding = (b: PlacedBuilding | (Building & { x: number, y: number }), isGhost = false) => {
+    const isPartOfMovingGroup = activeDragItem && 'x' in activeDragItem && selectedBuildingIds.has(b.id);
     const isCurrentlyBeingDragged = activeDragItem && activeDragItem.id === b.id;
+    const shouldHide = (isCurrentlyBeingDragged || isPartOfMovingGroup) && !isGhost;
+
     const isSelected = !isGhost && selectedBuildingIds.has(b.id);
     const isHovered = !isGhost && hoveredBuildingId === b.id;
 
@@ -429,7 +494,7 @@ export const Map: React.FC<MapProps> = ({
       <g
         key={b.id + (isGhost ? '-ghost' : '')}
         className={isGhost ? 'pointer-events-none' : 'cursor-move'}
-        style={isCurrentlyBeingDragged && !isGhost ? { opacity: 0.2 } : {}}
+        style={shouldHide ? { opacity: 0.2 } : {}}
         onContextMenu={(e) => !isGhost && onContextMenu(e, b as PlacedBuilding)}
         onMouseEnter={() => !isGhost && setHoveredBuildingId(b.id)}
         onMouseLeave={() => !isGhost && setHoveredBuildingId(null)}
