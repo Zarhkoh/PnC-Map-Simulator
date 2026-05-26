@@ -8,6 +8,7 @@ export interface Building {
   isBase?: boolean;
   count?: number;
   maxCount?: number;
+  allianceRadius?: number;
 }
 
 export interface PlacedBuilding extends Building {
@@ -25,6 +26,7 @@ export const INITIAL_BUILDINGS: Building[] = [
     color: '#64748b', // Gray-500
     isBase: true,
     maxCount: 1,
+    allianceRadius: 6,
   },
   {
     id: 'infernal-gate',
@@ -45,5 +47,6 @@ export const INITIAL_BUILDINGS: Building[] = [
     color: '#94a3b8', // Gray-400
     isBase: true,
     maxCount: 1, // Treat each as unique in the list as requested
+    allianceRadius: 4,
   })),
 ];

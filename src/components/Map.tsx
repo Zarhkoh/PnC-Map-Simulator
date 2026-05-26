@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PlacedBuilding, Building } from '../types';
+import { getAllianceTiles, isBuildingInAllianceZone } from '../utils/alliance';
 
 interface Point {
   x: number;
@@ -319,19 +320,14 @@ export const Map: React.FC<MapProps> = ({
                 const pS = gridToScreen(b.x, b.y + b.height);
 
                 // Screen coordinates of building (bounding box is enough for rectangle intersection)
+                // Since offset is already relative to the container, these are container local coords
                 const bLeft = (pW.x * zoom) + offset.x;
                 const bTop = (pN.y * zoom) + offset.y;
                 const bRight = (pE.x * zoom) + offset.x;
                 const bBottom = (pS.y * zoom) + offset.y;
 
-                // Adjust building screen coords to container local coords
-                const localBLeft = bLeft - rect.left;
-                const localBTop = bTop - rect.top;
-                const localBRight = bRight - rect.left;
-                const localBBottom = bBottom - rect.top;
-
                 // Intersection check
-                if (!(x + w < localBLeft || x > localBRight || y + h < localBTop || y > localBBottom)) {
+                if (!(x + w < bLeft || x > bRight || y + h < bTop || y > bBottom)) {
                     newSelected.add(b.id);
                 }
             });
@@ -377,52 +373,13 @@ export const Map: React.FC<MapProps> = ({
   const south = gridToScreen(0, gridSize);
   const east = gridToScreen(gridSize, gridSize);
 
-  const getAllianceTiles = () => {
-    const tiles = new Set<string>();
-
-    // Helper to add tiles for a building at a specific position
-    const addTiles = (b: { id: string, x: number, y: number, width: number, height: number }) => {
-        let radius = 0;
-        if (b.id === 'alliance-fortress') radius = 6;
-        else if (b.id.startsWith('outpost-')) radius = 4;
-
-        if (radius > 0) {
-            for (let i = b.x - radius; i < b.x + b.width + radius; i++) {
-                for (let j = b.y - radius; j < b.y + b.height + radius; j++) {
-                    if (i >= 0 && i < gridSize && j >= 0 && j < gridSize) {
-                        tiles.add(`${i},${j}`);
-                    }
-                }
-            }
-        }
-    };
-
-    // Calculate offset if dragging existing buildings
-    let dx = 0, dy = 0;
-    const isDraggingExisting = activeDragItem && dragPreviewPos && 'x' in activeDragItem;
-    if (isDraggingExisting) {
-        dx = dragPreviewPos!.x - (activeDragItem as PlacedBuilding).x;
-        dy = dragPreviewPos!.y - (activeDragItem as PlacedBuilding).y;
-    }
-
-    placedBuildings.forEach(b => {
-        if (isDraggingExisting && selectedBuildingIds.has(b.id)) {
-            // Use preview position for buildings being moved
-            addTiles({ ...b, x: b.x + dx, y: b.y + dy });
-        } else {
-            addTiles(b);
-        }
-    });
-
-    // Also include new building being dragged from sidebar
-    if (activeDragItem && dragPreviewPos && !('x' in activeDragItem)) {
-        addTiles({ ...activeDragItem, x: dragPreviewPos.x, y: dragPreviewPos.y });
-    }
-
-    return tiles;
-  };
-
-  const allianceTiles = getAllianceTiles();
+  const allianceTiles = getAllianceTiles(
+    placedBuildings,
+    gridSize,
+    activeDragItem,
+    dragPreviewPos,
+    selectedBuildingIds
+  );
 
   const renderAllianceZone = () => {
     if (allianceTiles.size === 0) return null;
@@ -488,7 +445,27 @@ export const Map: React.FC<MapProps> = ({
 
     const points = `${pW.x},${pW.y} ${pN.x},${pN.y} ${pE.x},${pE.y} ${pS.x},${pS.y}`;
 
-    const isValid = isGhost ? !isOccupied(b.x, b.y, b.width, b.height, 'x' in b ? (b as PlacedBuilding).id : undefined) : true;
+    let isValid = true;
+    if (isGhost) {
+        const excludeId = 'x' in b ? (b as PlacedBuilding).id : undefined;
+        const isOccupiedCheck = isOccupied(b.x, b.y, b.width, b.height, excludeId);
+
+        if (isOccupiedCheck) {
+            isValid = false;
+        } else if (b.isBase && b.id !== 'alliance-fortress') {
+            // Re-calculate alliance zone EXCLUDING the current building if it's already on map
+            // to see if it's placed in a VALID zone.
+            const otherAllianceTiles = getAllianceTiles(
+                placedBuildings,
+                gridSize,
+                activeDragItem,
+                dragPreviewPos,
+                selectedBuildingIds,
+                excludeId ? (Array.isArray(excludeId) ? excludeId : [excludeId]) : []
+            );
+            isValid = isBuildingInAllianceZone(b, otherAllianceTiles);
+        }
+    }
 
     return (
       <g
