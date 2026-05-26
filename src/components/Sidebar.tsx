@@ -26,6 +26,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 interface SidebarProps {
+  isOpen: boolean;
   buildings: Building[];
   onAddBuilding: (building: Omit<Building, 'id'>) => void;
   onUpdateBuilding: (id: string, updates: Partial<Building>) => void;
@@ -36,6 +37,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  isOpen,
   buildings,
   onAddBuilding,
   onUpdateBuilding,
@@ -72,8 +74,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-64 border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 z-10">
-      <div className="flex-1 overflow-y-auto">
+    <aside className={cn(
+      "border-r border-slate-700 bg-slate-800 flex flex-col shrink-0 z-10 transition-all duration-300 ease-in-out overflow-hidden",
+      isOpen ? "w-64" : "w-0 border-r-0"
+    )}>
+      <div className={cn("flex-1 overflow-y-auto min-w-64 transition-opacity duration-300", !isOpen && "opacity-0 pointer-events-none")}>
         {/* Alliance Buildings Section */}
         <div>
           <button
